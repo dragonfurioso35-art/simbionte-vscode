@@ -1,0 +1,69 @@
+{
+  "name": "simbionte",
+  "displayName": "Simbionte",
+  "description": "Painel ao vivo do que o Claude Code está fazendo: progresso dos planos (- [ ] / - [x]), arquivos tocados e alerta de sessão travada. Live Claude Code progress panel.",
+  "version": "1.0.0",
+  "publisher": "oscarwilder",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dragonfurioso35-art/simbionte-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dragonfurioso35-art/simbionte-vscode/issues"
+  },
+  "homepage": "https://github.com/dragonfurioso35-art/simbionte-vscode#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "ai",
+    "agent",
+    "hooks",
+    "progress",
+    "plans",
+    "superpowers"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "simbionte",
+          "title": "Simbionte",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "simbionte": [
+        {
+          "type": "webview",
+          "id": "simbionte.painel",
+          "name": "Simbionte"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "simbionte.instalarHooks",
+        "title": "Simbionte: Instalar hooks do Claude Code"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "node prepare.js"
+  }
+}

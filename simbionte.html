@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>SIMBIONTE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="data.js"></script>
+<style>
+  /*
+    DIRECTION CONTRACT (constelação hexagonal — ver DESIGN.md)
+    THESIS: o brilho é o dado, não clima — o hub e os anéis mostram git
+      real, não estado inventado.
+    OWN-WORLD: fundo quase preto; nós hexagonais em glow; 4 anéis radiais
+      fixos por status (rótulo + contagem); hub central pulsante; foco/
+      hover em âmbar-branco quente, único lugar onde cor de categoria cede.
+    STORY: hub → 4 anéis → clique abre painel de detalhes já existente;
+      par de abas alterna Anéis (mapa fixo) / Teia (deriva orgânica antiga).
+    FIRST VIEWPORT: canvas full-bleed, título + abas de modo centralizados
+      no topo, hub no centro, anéis nos quatro quadrantes intercardeais.
+    FORM: direção pinada pelo usuário (referência de vídeo trazida por
+      ele) — execução direta, sem torneio de conceitos.
+  */
+  :root{
+    --ativo:#3fe8c4; --pausado:#ffb757; --morto:#6b6f8a; --semstatus:#c98bff;
+    --focus:#ffedc2; --red:#ff6f6f;
+    --bg1:#020a0a; --bg2:#03120f;
+    --glass:rgba(6,20,20,.55); --edge:rgba(80,230,200,.22);
+    --text:#dff8f0; --dim:#5e8c82;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;font-family:'Jost',sans-serif;color:var(--text);
+    background:radial-gradient(ellipse at 50% 45%, var(--bg2), var(--bg1) 72%);}
+  canvas{position:fixed;inset:0;display:block;}
+  #web{z-index:1;cursor:grab;}
+  #web.dragging{cursor:grabbing;}
+
+  .breathe{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(circle at 50% 46%, rgba(255,217,122,.05), transparent 55%);
+    animation:breathe 6.5s ease-in-out infinite;}
+  @keyframes breathe{0%,100%{opacity:.5;}50%{opacity:1;}}
+  .vignette{position:fixed;inset:0;z-index:4;pointer-events:none;box-shadow:inset 0 0 260px 80px rgba(0,4,4,.86);}
+
+  header{position:fixed;top:28px;left:50%;transform:translateX(-50%);z-index:5;text-align:center;pointer-events:none;}
+  h1{font-family:'Cormorant Garamond',serif;font-weight:500;font-size:25px;letter-spacing:.14em;margin:0;color:var(--ativo);
+    text-shadow:0 0 22px rgba(63,232,196,.5);}
+  .sub{font-size:11px;letter-spacing:.28em;color:var(--dim);margin-top:6px;text-transform:uppercase;font-weight:300;}
+  .vitals{margin-top:10px;display:flex;gap:16px;justify-content:center;font-size:11px;letter-spacing:.04em;
+    color:var(--dim);font-weight:400;}
+  .vitals b{color:var(--text);font-weight:600;}
+  .vitals .warn b{color:var(--red);}
+  .vitals .stale b{color:var(--pausado);}
+
+  .modes{position:fixed;top:124px;left:50%;transform:translateX(-50%);z-index:5;display:flex;gap:2px;
+    background:var(--glass);border:1px solid var(--edge);padding:4px;border-radius:999px;backdrop-filter:blur(10px);}
+  .mode-item{font-family:'Jost',sans-serif;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--dim);background:none;border:none;padding:7px 18px;border-radius:999px;cursor:pointer;
+    transition:color .2s, background .2s;}
+  .mode-item.active{color:#03120f;background:var(--focus);}
+  .mode-item:not(.active):hover{color:var(--text);background:rgba(80,230,200,.08);}
+
+  .readout{position:fixed;top:28px;right:56px;z-index:5;text-align:right;font-size:10.5px;letter-spacing:.16em;
+    color:var(--dim);text-transform:uppercase;pointer-events:none;font-weight:300;}
+  .readout b{color:var(--ativo);font-size:20px;display:block;margin-top:2px;font-family:'Cormorant Garamond',serif;font-weight:600;}
+
+  .legend{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);z-index:5;display:flex;gap:8px;
+    background:var(--glass);border:1px solid var(--edge);padding:10px 14px;border-radius:999px;backdrop-filter:blur(10px);}
+  .leg-item{display:flex;align-items:center;gap:8px;font-size:11.5px;letter-spacing:.06em;color:var(--text);
+    cursor:pointer;background:none;border:none;font-family:'Jost',sans-serif;font-weight:400;opacity:.85;
+    padding:6px 12px;border-radius:999px;transition:opacity .2s, background .2s;}
+  .leg-item:hover{background:rgba(80,230,200,.08);}
+  .leg-item.off{opacity:.25;}
+  .leg-swatch{width:8px;height:8px;border-radius:50%;box-shadow:0 0 10px currentColor;}
+
+  .reset-btn{position:fixed;bottom:30px;right:56px;z-index:5;background:var(--glass);border:1px solid var(--edge);
+    color:var(--dim);font-family:'Jost',sans-serif;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    padding:9px 14px;border-radius:999px;cursor:pointer;backdrop-filter:blur(10px);transition:color .2s, border-color .2s;}
+  .reset-btn:hover{color:var(--focus);border-color:var(--focus);}
+
+  .brand{position:fixed;bottom:30px;left:56px;z-index:5;font-size:9.5px;letter-spacing:.22em;color:var(--dim);
+    text-transform:uppercase;}
+
+  .tooltip{position:fixed;z-index:6;pointer-events:none;background:var(--glass);border:1px solid var(--edge);
+    padding:7px 13px;font-size:12.5px;color:var(--focus);opacity:0;transition:opacity .15s;backdrop-filter:blur(8px);
+    border-radius:9px;font-family:'Jost',sans-serif;}
+  .tooltip.show{opacity:1;}
+  .tooltip small{display:block;color:var(--dim);text-transform:uppercase;letter-spacing:.18em;font-size:9px;margin-top:2px;}
+
+  .panel{position:fixed;top:0;right:0;bottom:0;width:340px;background:var(--glass);border-left:1px solid var(--edge);
+    z-index:8;padding:88px 32px 32px;transform:translateX(100%);transition:transform .35s ease;backdrop-filter:blur(14px);}
+  .panel.open{transform:translateX(0);}
+  .panel .tag{font-size:10px;letter-spacing:.28em;color:var(--dim);text-transform:uppercase;}
+  .panel h2{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;color:var(--focus);margin:10px 0 22px;
+    text-shadow:0 0 14px rgba(255,217,122,.35);}
+  .panel .row{font-size:13px;color:var(--text);letter-spacing:.02em;line-height:2;padding-bottom:14px;
+    border-bottom:1px solid rgba(80,230,200,.1);margin-bottom:14px;}
+  .panel .row .k{display:block;color:var(--dim);text-transform:uppercase;font-size:10px;letter-spacing:.16em;}
+  .panel .row.warn .v{color:var(--red);}
+
+  .health-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
+    border-radius:50%;font-family:'Cormorant Garamond',serif;font-weight:600;font-size:14px;
+    vertical-align:middle;margin-right:8px;}
+  .health-badge.grade-A{background:rgba(63,232,196,.16);color:var(--ativo);box-shadow:inset 0 0 0 1px rgba(63,232,196,.4);}
+  .health-badge.grade-B{background:rgba(255,183,87,.14);color:var(--pausado);box-shadow:inset 0 0 0 1px rgba(255,183,87,.35);}
+  .health-badge.grade-C{background:rgba(255,209,102,.16);color:#ffd166;box-shadow:inset 0 0 0 1px rgba(255,209,102,.35);}
+  .health-badge.grade-D{background:rgba(255,111,111,.16);color:var(--red);box-shadow:inset 0 0 0 1px rgba(255,111,111,.4);}
+  .health-reasons{margin:6px 0 0;padding:0;list-style:none;font-size:11.5px;color:var(--dim);line-height:1.7;}
+  .panel .close{position:absolute;top:32px;right:32px;background:none;border:1px solid var(--edge);color:var(--focus);
+    width:30px;height:30px;border-radius:50%;cursor:pointer;font-family:'Jost',sans-serif;font-size:14px;}
+</style>
+</head>
+<body>
+<div class="breathe"></div>
+<canvas id="web"></canvas>
+<div class="vignette"></div>
+
+<header>
+  <h1>ecrã simbionte</h1>
+  <div class="sub">mapa de projetos · rede viva</div>
+  <div class="vitals">
+    <span>atualizado <b id="lastSync">—</b></span>
+    <span class="warn">mudanças pendentes <b id="dirtyTotal">0</b></span>
+    <span class="stale">parados há +30 dias <b id="staleTotal">0</b></span>
+  </div>
+</header>
+<div class="modes" id="modes">
+  <button class="mode-item" data-mode="aneis">anéis</button>
+  <button class="mode-item" data-mode="teia">teia</button>
+</div>
+<div class="readout">organismos ativos<b id="totalCount">0</b></div>
+
+<div class="legend" id="legend"></div>
+<button class="reset-btn" id="resetBtn">↺ reorganizar tudo</button>
+<div class="tooltip" id="tooltip"></div>
+<div class="brand">SIMBIONTE · dados git reais</div>
+
+<div class="panel" id="panel">
+  <button class="close" id="closePanel">×</button>
+  <div class="tag" id="panelTag">—</div>
+  <h2 id="panelName">—</h2>
+  <div class="row" id="panelHealthRow" style="display:none">
+    <span class="k">saúde</span>
+    <span id="panelHealth">—</span>
+  </div>
+  <div class="row"><span class="k">branch</span><span id="panelBranch">—</span></div>
+  <div class="row"><span class="k">último commit</span><span id="panelCommit">—</span></div>
+  <div class="row"><span class="k">mensagem</span><span id="panelMsg">—</span></div>
+  <div class="row" id="panelDirtyRow"><span class="k">mudanças não commitadas</span><span id="panelDirty">—</span></div>
+  <div class="row" id="panelAheadRow" style="display:none"><span class="k">remote</span><span id="panelAhead">—</span></div>
+  <div class="row" id="panelCiRow" style="display:none"><span class="k">último deploy (CI)</span><span id="panelCi">—</span></div>
+  <button class="reset-btn" id="panelOpenBtn" style="margin-top:6px;width:100%">abrir no VS Code</button>
+</div>
+
+<script>
+const FOCUS = '#ffedc2';
+const catKeys = Object.keys(CATEGORIES);
+const grouped = {};
+catKeys.forEach(k => grouped[k] = PROJECTS.filter(p => p.cat === k));
+document.getElementById('totalCount').textContent = PROJECTS.length;
+
+// índice de cada projeto dentro da sua própria categoria — usado pra
+// espalhar os nós ao longo do arco da categoria no modo "anéis"
+const catIndexMap = {};
+catKeys.forEach(k => grouped[k].forEach((p, i) => { catIndexMap[p.id] = { idx: i, count: grouped[k].length }; }));
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+let W = innerWidth, H = innerHeight;
+const webCanvas = document.getElementById('web');
+const wctx = webCanvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const panel = document.getElementById('panel');
+function resize(){ W = innerWidth; H = innerHeight; webCanvas.width = W; webCanvas.height = H; }
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- persisted manual layout + mode ----------
+const LS_KEY = 'simbionte-layout-v1';
+const MODE_KEY = 'simbionte-mode-v1';
+let savedLayout = {};
+try { savedLayout = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e) { savedLayout = {}; }
+function persistLayout(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify(savedLayout)); } catch(e) {}
+}
+let mode = 'aneis';
+try { mode = localStorage.getItem(MODE_KEY) || 'aneis'; } catch(e) {}
+
+// ---------- graph state: hub + 4 anéis radiais fixos por status ----------
+let cx = 0, cy = 0, R = 0;
+const hub = { x: 0, y: 0 };
+const CLUSTER_OFFSET = 70; // quanto além do anel-âncora os nós de cada categoria orbitam
+
+const anchors = catKeys.map((key, i) => {
+  // deslocado -45° pra nenhuma categoria cair exatamente sob o header,
+  // o painel lateral ou a legenda inferior
+  const angle = (Math.PI*2/catKeys.length)*i - Math.PI/2 + Math.PI/4;
+  return { key, angle, x:0, y:0, pulse: Math.random()*Math.PI*2 };
+});
+function layoutAnchors(){
+  cx = W/2; cy = H*.52; R = Math.min(W,H)*.3;
+  hub.x = cx; hub.y = cy;
+  anchors.forEach(a => { a.x = cx + Math.cos(a.angle)*R; a.y = cy + Math.sin(a.angle)*R; });
+}
+layoutAnchors();
+window.addEventListener('resize', layoutAnchors);
+
+function ringSpread(count){ return Math.min(1.15, .22 + count*.11); }
+
+function aneisTarget(n){
+  const a = anchors.find(x => x.key === n.cat);
+  const spread = ringSpread(n.catCount);
+  const t = n.catCount <= 1 ? .5 : n.catIdx/(n.catCount-1);
+  const angle = n.catCount <= 1 ? a.angle : (a.angle - spread/2) + spread*t;
+  const radius = R + CLUSTER_OFFSET + (n.catIdx % 2)*24;
+  return { x: cx + Math.cos(angle)*radius, y: cy + Math.sin(angle)*radius };
+}
+
+const nodes = PROJECTS.map(p => {
+  const pinned = savedLayout[p.id];
+  const ci = catIndexMap[p.id];
+  return {
+    ...p,
+    x: pinned ? pinned.x : W/2 + (Math.random()-.5)*260,
+    y: pinned ? pinned.y : H/2 + (Math.random()-.5)*260,
+    vx:0, vy:0, r: 4.4, phase: Math.random()*Math.PI*2,
+    pinned: !!pinned, catIdx: ci.idx, catCount: ci.count,
+    freshness: .3, dirtyCount: 0, status: null, severity: null,
+  };
+});
+window.__nodes = nodes; // hook de depuração/teste
+
+// ---------- live git data ----------
+async function fetchStatus(){
+  try {
+    const res = await fetch('/api/status');
+    const json = await res.json();
+    const now = Date.now();
+    let dirtyTotal = 0, staleTotal = 0;
+    nodes.forEach(n => {
+      const s = json.data[n.id];
+      n.status = s;
+      if (s && s.exists && !s.error){
+        const days = (now - s.lastCommitTs) / 86400000;
+        n.freshness = Math.max(0, Math.min(1, 1 - days/60));
+        n.dirtyCount = s.dirtyCount || 0;
+        if (n.dirtyCount > 0) dirtyTotal++;
+        if (days > 30) staleTotal++;
+      } else {
+        n.freshness = 0; n.dirtyCount = 0;
+      }
+    });
+    document.getElementById('dirtyTotal').textContent = dirtyTotal;
+    document.getElementById('staleTotal').textContent = staleTotal;
+    document.getElementById('lastSync').textContent = new Date(json.updatedAt).toLocaleTimeString('pt-BR');
+  } catch (e) { /* servidor sem /api/status ainda — mantém estado atual */ }
+}
+fetchStatus();
+setInterval(fetchStatus, 30000);
+
+const SEVERITY_RANK = { alerta: 0, atencao: 1, info: 2 };
+
+async function fetchInsights(){
+  try {
+    const res = await fetch('/api/insights');
+    const json = await res.json();
+    const bySeverity = {};
+    (json.signals || []).forEach(s => {
+      const cur = bySeverity[s.projectId];
+      if (!cur || SEVERITY_RANK[s.severity] < SEVERITY_RANK[cur]) bySeverity[s.projectId] = s.severity;
+    });
+    nodes.forEach(n => {
+      n.severity = bySeverity[n.id] || null;
+      n.health = (json.health && json.health[n.id]) || null; // só existe pra categoria 'ativo'
+    });
+  } catch (e) { /* servidor sem /api/insights ainda — mantém estado atual */ }
+}
+fetchInsights();
+setInterval(fetchInsights, 30000);
+
+// ---------- ao vivo: Server-Sent Events — sem esperar o próximo poll ----------
+// Achado real (2026-09-09): antes disso, um arquivo sendo editado agora só
+// aparecia (indiretamente, como freshness) até 30s depois, e o grafo não
+// mostrava toque de arquivo nenhum — só o painel lateral tinha essa lista,
+// em texto. `touches` guarda os flashes recentes; drawTouches() em
+// drawWeb() desenha o anel de choque + nome do arquivo, e touchHeat()
+// deixa o próprio hexágono do nó brilhar mais por um instante.
+try {
+  const es = new EventSource('/api/events');
+  es.addEventListener('activity', e => {
+    const entry = JSON.parse(e.data);
+    const n = nodeById[entry.projectId];
+    if (!n) return; // id não está no data.js carregado (não deveria acontecer, mas não derruba a página)
+    touches.push({ nodeId: n.id, file: entry.file, bornAt: performance.now() });
+  });
+  es.addEventListener('status', fetchStatus);
+  es.addEventListener('insights', fetchInsights);
+} catch (e) { /* EventSource indisponível neste navegador — mapa continua funcionando só com poll */ }
+
+function timeAgo(ts){
+  if (!ts) return '—';
+  const diff = Date.now() - ts;
+  const mins = diff/60000, hrs = mins/60, days = hrs/24;
+  if (mins < 60) return `há ${Math.round(mins)} min`;
+  if (hrs < 24) return `há ${Math.round(hrs)}h`;
+  if (days < 30) return `há ${Math.round(days)} dias`;
+  return `há ${Math.round(days/30)} meses`;
+}
+
+// ---------- physics: repulsion + spring-to-target + drag with momentum ----------
+let activeFilter = null;
+let hovered = null;
+let dragging = null;
+let lastMouse = { x:0, y:0, t:0 };
+let touches = []; // flashes de arquivo tocado agora, vindos do SSE — ver drawTouches()
+let __nowMs = 0;   // timestamp do frame atual (rAF), pra touchHeat() não precisar de outro parâmetro em cascata
+
+// Decai rápido (700ms) — é só o instante do toque brilhando mais forte no
+// próprio hexágono; o anel de choque + nome do arquivo (drawTouches) dura
+// mais pra dar tempo de ler.
+function touchHeat(nodeId){
+  let heat = 0;
+  for (const tch of touches){
+    if (tch.nodeId !== nodeId) continue;
+    const h = Math.max(0, 1 - (__nowMs - tch.bornAt)/700);
+    if (h > heat) heat = h;
+  }
+  return heat;
+}
+
+function step(){
+  nodes.forEach(n => {
+    if (n === dragging) return;
+    if (!n.pinned){
+      if (mode === 'aneis'){
+        const tgt = aneisTarget(n);
+        n.vx += (tgt.x - n.x) * 0.006;
+        n.vy += (tgt.y - n.y) * 0.006;
+      } else {
+        const a = anchors.find(x => x.key === n.cat);
+        n.vx += (a.x - n.x) * 0.0021;
+        n.vy += (a.y - n.y) * 0.0021;
+        n.vx += (cx - n.x) * 0.00005;
+        n.vy += (cy - n.y) * 0.00005;
+      }
+    }
+  });
+  for (let i=0;i<nodes.length;i++){
+    for (let j=i+1;j<nodes.length;j++){
+      const a=nodes[i], b=nodes[j];
+      const dx=b.x-a.x, dy=b.y-a.y, d2=dx*dx+dy*dy+.01;
+      if (d2 < 2800){
+        const f = 46/d2, d = Math.sqrt(d2);
+        const fx=dx/d*f, fy=dy/d*f;
+        if (a!==dragging){ a.vx-=fx; a.vy-=fy; }
+        if (b!==dragging){ b.vx+=fx; b.vy+=fy; }
+      }
+    }
+  }
+  nodes.forEach(n => {
+    if (n === dragging) return;
+    n.vx*=.87; n.vy*=.87; n.x+=n.vx; n.y+=n.vy;
+  });
+}
+
+function nodeAt(mx,my){
+  let found = null, best = 1e9;
+  nodes.forEach(n => {
+    const dx=n.x-mx, dy=n.y-my, d2=dx*dx+dy*dy;
+    if (d2 < 160 && d2 < best){ best = d2; found = n; }
+  });
+  return found;
+}
+
+const HUB_HIT_R = 26;
+function hubHit(mx,my){ const dx=mx-hub.x, dy=my-hub.y; return dx*dx+dy*dy < HUB_HIT_R*HUB_HIT_R; }
+
+function doReset(){
+  savedLayout = {};
+  persistLayout();
+  nodes.forEach(n => { n.pinned = false; });
+  activeFilter = null;
+  document.querySelectorAll('.leg-item').forEach(b => b.classList.remove('off'));
+}
+
+webCanvas.addEventListener('mousedown', e => {
+  // Nó tem prioridade sobre o hub — sem isso, um nó arrastado pra dentro
+  // do raio do hub (HUB_HIT_R) ficava permanentemente preso: nunca mais
+  // dava pra arrastar (mousedown caía no hubHit e nem chegava a nodeAt)
+  // nem pra clicar (mesmo problema no handler de click, abaixo), sempre
+  // disparando "reorganizar tudo" sem confirmação em vez de abrir o
+  // painel dele (achado real, 2026-09-10).
+  const n = nodeAt(e.clientX, e.clientY);
+  if (!n && hubHit(e.clientX, e.clientY)) return;
+  if (n){
+    dragging = n; n.pinned = true; n.vx = 0; n.vy = 0;
+    lastMouse = { x:e.clientX, y:e.clientY, t: performance.now() };
+    webCanvas.classList.add('dragging');
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (dragging){
+    const now = performance.now();
+    const dt = Math.max(1, now - lastMouse.t);
+    dragging.vx = (e.clientX - lastMouse.x) / dt * 16;
+    dragging.vy = (e.clientY - lastMouse.y) / dt * 16;
+    dragging.x = e.clientX; dragging.y = e.clientY;
+    lastMouse = { x:e.clientX, y:e.clientY, t: now };
+    return;
+  }
+  const n = nodeAt(e.clientX, e.clientY);
+  hovered = n;
+  if (n && n.id !== panelOpenId){
+    tooltip.innerHTML = `${esc(n.name)}<small>${esc(CATEGORIES[n.cat].label)} · arraste ou clique</small>`;
+    tooltip.classList.add('show');
+    tooltip.style.left=(e.clientX+16)+'px'; tooltip.style.top=(e.clientY-8)+'px';
+  } else if (!n) tooltip.classList.remove('show');
+});
+window.addEventListener('mouseup', () => {
+  if (dragging){
+    savedLayout[dragging.id] = { x: dragging.x, y: dragging.y };
+    persistLayout();
+    webCanvas.classList.remove('dragging');
+    dragging = null;
+  }
+});
+webCanvas.addEventListener('click', e => {
+  const n = nodeAt(e.clientX, e.clientY); // nó tem prioridade sobre o hub — ver nota no mousedown acima
+  if (n) { openPanel(n); return; }
+  if (hubHit(e.clientX, e.clientY)) doReset();
+});
+
+document.getElementById('resetBtn').addEventListener('click', doReset);
+
+document.querySelectorAll('.mode-item').forEach(btn => {
+  btn.classList.toggle('active', btn.dataset.mode === mode);
+  btn.addEventListener('click', () => {
+    mode = btn.dataset.mode;
+    document.querySelectorAll('.mode-item').forEach(b => b.classList.toggle('active', b === btn));
+    try { localStorage.setItem(MODE_KEY, mode); } catch(e) {}
+  });
+});
+
+let panelOpenId = null;
+
+function openPanel(n){
+  const s = n.status;
+  panelOpenId = n.id;
+  document.getElementById('panelTag').textContent = '// ' + CATEGORIES[n.cat].label.toUpperCase();
+  document.getElementById('panelName').textContent = n.name;
+
+  // Só existe nota de saúde pra categoria 'ativo' (ver insights.js) —
+  // pausado/morto some a linha em vez de mostrar "—" sem sentido.
+  const healthRow = document.getElementById('panelHealthRow');
+  if (n.health) {
+    const motivos = n.health.reasons.length
+      ? n.health.reasons.map(r => `<li>${esc(r.label)}</li>`).join('')
+      : '<li>tudo em dia</li>';
+    document.getElementById('panelHealth').innerHTML =
+      `<span class="health-badge grade-${n.health.grade}">${n.health.grade}</span>${n.health.score}/100` +
+      `<ul class="health-reasons">${motivos}</ul>`;
+    healthRow.style.display = '';
+  } else {
+    healthRow.style.display = 'none';
+  }
+
+  document.getElementById('panelBranch').textContent = (s && s.branch) || '—';
+  document.getElementById('panelCommit').textContent = s && s.lastCommitTs ? timeAgo(s.lastCommitTs) : 'sem dados locais';
+  document.getElementById('panelMsg').textContent = (s && s.lastCommitMsg) || '—';
+  const dirtyRow = document.getElementById('panelDirtyRow');
+  const dirtyVal = document.getElementById('panelDirty');
+  dirtyVal.textContent = s ? (s.dirtyCount > 0 ? `${s.dirtyCount} arquivo(s)` : 'tudo limpo') : '—';
+  dirtyRow.classList.toggle('warn', !!(s && s.dirtyCount > 0));
+
+  const aheadRow = document.getElementById('panelAheadRow');
+  const aheadVal = document.getElementById('panelAhead');
+  if (s && (s.ahead || s.behind)) {
+    const parts = [];
+    if (s.ahead > 0) parts.push(`${s.ahead} não empurrado(s)`);
+    if (s.behind > 0) parts.push(`${s.behind} atrás do remote`);
+    aheadVal.textContent = parts.join(' · ') || 'sincronizado';
+    aheadRow.style.display = '';
+    aheadRow.classList.toggle('warn', s.ahead > 0 || s.behind > 0);
+  } else {
+    aheadRow.style.display = 'none';
+  }
+
+  const ciRow = document.getElementById('panelCiRow');
+  const ciVal = document.getElementById('panelCi');
+  if (s && s.ci) {
+    const label = s.ci.conclusion || s.ci.status || 'desconhecido';
+    ciVal.textContent = label;
+    ciRow.style.display = '';
+    ciRow.classList.toggle('warn', s.ci.conclusion === 'failure');
+  } else {
+    ciRow.style.display = 'none';
+  }
+
+  panel.classList.add('open');
+}
+document.getElementById('closePanel').addEventListener('click', () => {
+  panel.classList.remove('open');
+  panelOpenId = null;
+});
+
+document.getElementById('panelOpenBtn').addEventListener('click', () => {
+  if (!panelOpenId) return;
+  fetch('/api/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: panelOpenId }),
+  }).catch(() => {});
+});
+
+function quadPoint(p0,p1,p2,t){
+  const x = (1-t)*(1-t)*p0.x + 2*(1-t)*t*p1.x + t*t*p2.x;
+  const y = (1-t)*(1-t)*p0.y + 2*(1-t)*t*p1.y + t*t*p2.y;
+  return {x,y};
+}
+
+// ---------- hexágono: forma do nó em toda a constelação ----------
+function hexPath(ctx, x, y, r){
+  ctx.beginPath();
+  for (let i=0;i<6;i++){
+    const a = -Math.PI/6 + i*Math.PI/3;
+    const px = x + Math.cos(a)*r, py = y + Math.sin(a)*r;
+    if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+}
+
+// ---------- texto com tracking manual (rótulos dos anéis, contagem do hub) ----------
+function drawTracked(ctx, text, x, y, { size=10.5, color='#5e8c82', spacing=1.5, align='center' } = {}){
+  ctx.font = `${size}px 'Jost', sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const chars = [...text];
+  const widths = chars.map(ch => ctx.measureText(ch).width);
+  const total = widths.reduce((s,w) => s+w+spacing, 0) - spacing;
+  let px = align==='center' ? x-total/2 : (align==='right' ? x-total : x);
+  ctx.fillStyle = color;
+  chars.forEach((ch,i) => { ctx.fillText(ch, px, y); px += widths[i]+spacing; });
+}
+
+const nodeById = {};
+nodes.forEach(n => { nodeById[n.id] = n; });
+
+// Relações onde um projeto MORTO ainda é usado por um ATIVO — mesmo
+// critério do sinal 'dead-dependency' em insights.js, só que aqui é pra
+// desenhar a conexão diferente (pulsando em alerta), não só listar em
+// texto no painel de sinais. Achado real (2026-09-09): esse caso
+// (auth-core usado por MEU-APP-V4) já era detectado mas ficava
+// perdido como texto — o usuário queria ver a dependência de risco no
+// próprio grafo.
+// Chave inclui o TYPE, não só from/to — sem isso, uma relação futura de
+// outro tipo (ex: 'mesmo-cliente-de') entre o mesmo par ganharia o
+// destaque vermelho pulsando por engano, já que o laço de desenho abaixo
+// percorre TODAS as relações, não só as 'usado-por' (achado real,
+// 2026-09-10; não acontece com o data.js de hoje, mas o guard faltava).
+const deadDepKeys = new Set(
+  RELATIONS
+    .filter(r => r.type === 'usado-por')
+    .filter(r => {
+      const a = nodeById[r.from], b = nodeById[r.to];
+      return a && b && a.cat === 'morto' && b.cat === 'ativo';
+    })
+    .map(r => r.type + '|' + r.from + '→' + r.to)
+);
+
+function drawRelations(t){
+  RELATIONS.forEach(r => {
+    const a = nodeById[r.from], b = nodeById[r.to];
+    if (!a || !b) return; // id renomeado/removido do data.js — ignora silenciosamente
+    const dim = activeFilter && a.cat !== activeFilter && b.cat !== activeFilter;
+
+    if (deadDepKeys.has(r.type + '|' + r.from + '→' + r.to) && !dim){
+      const pulse = .5 + Math.sin(t*2.4)*.5; // 0..1
+      wctx.globalAlpha = .35 + pulse*.5;
+      wctx.strokeStyle = '#ff6f6f';
+      wctx.lineWidth = 1.6 + pulse*1.3;
+      wctx.shadowColor = '#ff6f6f'; wctx.shadowBlur = 5 + pulse*7;
+      wctx.beginPath();
+      wctx.moveTo(a.x, a.y);
+      wctx.lineTo(b.x, b.y);
+      wctx.stroke();
+      wctx.shadowBlur = 0;
+      return;
+    }
+
+    wctx.globalAlpha = dim ? .04 : .16;
+    wctx.strokeStyle = '#dff8f0';
+    wctx.lineWidth = 1;
+    wctx.beginPath();
+    wctx.moveTo(a.x, a.y);
+    wctx.lineTo(b.x, b.y);
+    wctx.stroke();
+  });
+  wctx.globalAlpha = 1;
+}
+
+function drawCategoryRing(a){
+  const count = grouped[a.key].length;
+  const dim = activeFilter && activeFilter !== a.key;
+  const spread = ringSpread(count);
+  const radius = R + CLUSTER_OFFSET + 12;
+  wctx.globalAlpha = dim ? .06 : .2;
+  wctx.strokeStyle = CATEGORIES[a.key].color;
+  wctx.lineWidth = 1;
+  wctx.beginPath();
+  wctx.arc(cx, cy, radius, a.angle-spread/2, a.angle+spread/2);
+  wctx.stroke();
+  wctx.globalAlpha = 1;
+}
+
+function drawRingLabel(a){
+  const count = grouped[a.key].length;
+  const color = CATEGORIES[a.key].color;
+  const dim = activeFilter && activeFilter !== a.key;
+  const labelR = R + CLUSTER_OFFSET + 46;
+  const x = cx + Math.cos(a.angle)*labelR, y = cy + Math.sin(a.angle)*labelR;
+  wctx.globalAlpha = dim ? .18 : .9;
+  wctx.shadowColor = color; wctx.shadowBlur = 6;
+  drawTracked(wctx, `${CATEGORIES[a.key].label.toUpperCase()} · ${count}`, x, y, { color, size:10.5, spacing:1.3 });
+  wctx.shadowBlur = 0;
+  wctx.globalAlpha = 1;
+}
+
+function drawHub(t){
+  const pulse = 12 + Math.sin(t*0.9)*2.6;
+  wctx.globalAlpha = .85;
+  const grad = wctx.createRadialGradient(hub.x,hub.y,0,hub.x,hub.y,pulse*4.2);
+  grad.addColorStop(0, FOCUS+'ee'); grad.addColorStop(.4, FOCUS+'44'); grad.addColorStop(1,'transparent');
+  wctx.fillStyle = grad;
+  wctx.beginPath(); wctx.arc(hub.x,hub.y,pulse*4.2,0,Math.PI*2); wctx.fill();
+
+  wctx.globalAlpha = 1;
+  wctx.strokeStyle = FOCUS; wctx.lineWidth = 1.6;
+  hexPath(wctx, hub.x, hub.y, pulse*1.2);
+  wctx.stroke();
+  wctx.fillStyle = '#fff8ea';
+  hexPath(wctx, hub.x, hub.y, pulse*.44);
+  wctx.fill();
+
+  wctx.shadowColor = FOCUS; wctx.shadowBlur = 8;
+  drawTracked(wctx, String(PROJECTS.length), hub.x, hub.y - pulse*4.2 - 12, { color: FOCUS, size:13, spacing:1 });
+  wctx.shadowBlur = 0;
+}
+
+function drawHexNode(n, t){
+  const dim = activeFilter && n.cat !== activeFilter;
+  const heat = touchHeat(n.id); // 0..1, brilho extra pelo toque de arquivo agora (SSE)
+  // "em foco" cobre hover, arraste, o nó cujo painel está aberto E um
+  // toque de arquivo recém-chegado — sem isso, o destaque some assim que
+  // o mouse sai do nó selecionado, mesmo com o painel ainda aberto.
+  const isFocused = n === hovered || n === dragging || n.id === panelOpenId || heat > .05;
+  const drawColor = isFocused ? FOCUS : CATEGORIES[n.cat].color;
+  const pulseSpeed = .5 + n.freshness*2.2;
+  const pulseAmp = .5 + n.freshness*1.6;
+  const baseSize = n.r + n.freshness*2.4 + (isFocused ? 2.6 : 0) + heat*3.2;
+  const pulse = baseSize + Math.sin(t*pulseSpeed + n.phase)*pulseAmp;
+  const glowAlpha = .25 + n.freshness*.5;
+
+  wctx.globalAlpha = dim ? .08 : glowAlpha;
+  const grad = wctx.createRadialGradient(n.x,n.y,0,n.x,n.y,pulse*4);
+  grad.addColorStop(0, drawColor+'dd'); grad.addColorStop(.4, drawColor+'55'); grad.addColorStop(1,'transparent');
+  wctx.fillStyle = grad;
+  wctx.beginPath(); wctx.arc(n.x,n.y,pulse*4,0,Math.PI*2); wctx.fill();
+
+  const ringColor = { alerta: '#ff6f6f', atencao: '#ffd166', info: '#8fd9ff' }[n.severity];
+  if (ringColor && !dim){
+    const warnPulse = 1 + Math.sin(t*3 + n.phase)*.25;
+    wctx.globalAlpha = .5;
+    wctx.strokeStyle = ringColor;
+    wctx.lineWidth = 1.4;
+    wctx.beginPath(); wctx.arc(n.x,n.y,(pulse*1.9)*warnPulse,0,Math.PI*2); wctx.stroke();
+  }
+
+  wctx.globalAlpha = dim ? .2 : .95;
+  wctx.strokeStyle = drawColor;
+  wctx.lineWidth = isFocused ? 1.7 : 1.1;
+  hexPath(wctx, n.x, n.y, pulse*1.2);
+  wctx.stroke();
+
+  wctx.globalAlpha = dim ? .15 : 1;
+  wctx.fillStyle = drawColor;
+  hexPath(wctx, n.x, n.y, pulse*.5);
+  wctx.fill();
+}
+
+function drawWeb(now){
+  wctx.clearRect(0,0,W,H);
+  const t = now/1000;
+  __nowMs = now;
+
+  drawRelations(t);
+  anchors.forEach(drawCategoryRing);
+
+  nodes.forEach(n => {
+    const dim = activeFilter && n.cat !== activeFilter;
+    const color = CATEGORIES[n.cat].color;
+
+    if (mode === 'teia'){
+      const a = anchors.find(x => x.key === n.cat);
+      const mx = (a.x+n.x)/2, my = (a.y+n.y)/2;
+      const wob = Math.sin(t*.6 + n.phase) * 18;
+      const ctrl = { x: mx + wob, y: my + Math.cos(t*.5 + n.phase)*18 };
+
+      wctx.globalAlpha = dim ? .05 : .18 + n.freshness*.22;
+      wctx.strokeStyle = color;
+      wctx.lineWidth = 1.1;
+      wctx.beginPath();
+      wctx.moveTo(a.x, a.y);
+      wctx.quadraticCurveTo(ctrl.x, ctrl.y, n.x, n.y);
+      wctx.stroke();
+
+      if (!dim && n.freshness > 0.02){
+        for (let k=0;k<2;k++){
+          const speed = 0.1 + n.freshness*.35;
+          const pt = ((t*speed) + k*.5 + (n.x%50)/50) % 1;
+          const pos = quadPoint(a, ctrl, n, pt);
+          wctx.globalAlpha = .85;
+          wctx.fillStyle = k===0 ? color : FOCUS;
+          wctx.shadowColor = color; wctx.shadowBlur = 8;
+          wctx.beginPath(); wctx.arc(pos.x, pos.y, 1.6, 0, Math.PI*2); wctx.fill();
+        }
+      }
+    } else {
+      // modo "anéis": linha reta tipo radar, do hub até cada nó
+      wctx.globalAlpha = dim ? .04 : .12 + n.freshness*.18;
+      wctx.strokeStyle = color;
+      wctx.lineWidth = 1;
+      wctx.beginPath();
+      wctx.moveTo(hub.x, hub.y);
+      wctx.lineTo(n.x, n.y);
+      wctx.stroke();
+
+      if (!dim && n.freshness > 0.02){
+        const speed = 0.09 + n.freshness*.3;
+        const pt = (t*speed + (n.x%50)/50) % 1;
+        const px = hub.x + (n.x-hub.x)*pt, py = hub.y + (n.y-hub.y)*pt;
+        wctx.globalAlpha = .85;
+        wctx.fillStyle = color;
+        wctx.shadowColor = color; wctx.shadowBlur = 8;
+        wctx.beginPath(); wctx.arc(px, py, 1.6, 0, Math.PI*2); wctx.fill();
+      }
+    }
+  });
+  wctx.shadowBlur = 0; wctx.globalAlpha = 1;
+
+  anchors.forEach(a => {
+    const color = CATEGORIES[a.key].color;
+    const dim = activeFilter && activeFilter !== a.key;
+    const pulse = 6 + Math.sin(t*1.1 + a.pulse)*1.8;
+    wctx.globalAlpha = dim ? .1 : .7;
+    const grad = wctx.createRadialGradient(a.x,a.y,0,a.x,a.y,pulse*3.2);
+    grad.addColorStop(0, color); grad.addColorStop(1, 'transparent');
+    wctx.fillStyle = grad;
+    wctx.beginPath(); wctx.arc(a.x,a.y,pulse*3.2,0,Math.PI*2); wctx.fill();
+    wctx.fillStyle = color;
+    wctx.beginPath(); wctx.arc(a.x,a.y,2.4,0,Math.PI*2); wctx.fill();
+  });
+  wctx.globalAlpha = 1;
+
+  drawHub(t);
+  nodes.forEach(n => drawHexNode(n, t));
+  anchors.forEach(drawRingLabel);
+  drawTouches(now);
+  wctx.globalAlpha = 1;
+}
+
+const TOUCH_DURATION = 2600; // ms — mais longo que touchHeat() de propósito: dá tempo de ler o nome do arquivo
+function drawTouches(now){
+  for (let i = touches.length - 1; i >= 0; i--){
+    const tch = touches[i];
+    const age = now - tch.bornAt;
+    if (age > TOUCH_DURATION){ touches.splice(i, 1); continue; }
+    const n = nodeById[tch.nodeId];
+    if (!n) { touches.splice(i, 1); continue; }
+    const t2 = age / TOUCH_DURATION;
+
+    // anel de choque expandindo a partir do nó, some conforme cresce
+    wctx.globalAlpha = (1 - t2) * .8;
+    wctx.strokeStyle = FOCUS;
+    wctx.lineWidth = 1.6;
+    wctx.beginPath();
+    wctx.arc(n.x, n.y, 6 + t2*34, 0, Math.PI*2);
+    wctx.stroke();
+
+    // nome do arquivo: entra rápido, some devagar, sobe um pouco
+    wctx.globalAlpha = t2 < .12 ? t2/.12 : Math.max(0, 1 - (t2-.12)/.88);
+    wctx.shadowColor = FOCUS; wctx.shadowBlur = 6;
+    drawTracked(wctx, tch.file, n.x, n.y - 20 - t2*14, { color: FOCUS, size:10.5, spacing:.6 });
+    wctx.shadowBlur = 0;
+  }
+  wctx.globalAlpha = 1;
+}
+
+function loop(now){
+  step();
+  drawWeb(now);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+catKeys.forEach(key => {
+  const btn = document.createElement('button');
+  btn.className = 'leg-item';
+  btn.innerHTML = `<span class="leg-swatch" style="background:${CATEGORIES[key].color};color:${CATEGORIES[key].color}"></span>
+    ${CATEGORIES[key].label}`;
+  btn.addEventListener('click', () => {
+    activeFilter = activeFilter === key ? null : key;
+    document.querySelectorAll('.leg-item').forEach(b => b.classList.toggle('off', activeFilter && b !== btn));
+  });
+  document.getElementById('legend').appendChild(btn);
+});
+</script>
+</body>
+</html>

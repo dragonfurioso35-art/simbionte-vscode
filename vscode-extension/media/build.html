@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --teal:#3fe8c4; --teal-dim:#2a9d84; --dim:#8fb2bf; --text:#e8fbf4; --bg:#020a0a;
+    --glass:rgba(8,24,24,.6); --glass-hi:rgba(12,32,32,.78); --edge:rgba(88,235,205,.24); --edge-hi:rgba(88,235,205,.55);
+    --amarelo:#e8c23f; --vermelho:#ff6a52;
+    --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:28px;
+    --r-lg:12px; --r-md:9px;
+    --fs-xs:11px; --fs-sm:12px; --fs-md:13px; --fs-lg:14.5px;
+    --shadow-1:0 2px 10px rgba(0,0,0,.4);
+    --shadow-2:0 4px 16px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box;}
+  /* Achado 2026-09-23 (reportado duas vezes: "o banner não sumiu"): o
+     atributo `hidden` não escondia nada. `[hidden]{display:none}` vem da
+     folha do NAVEGADOR e tem a mesma especificidade (0,1,0) que
+     `.banner{display:flex}` daqui — empate de especificidade resolve pela
+     ordem, e a folha do autor vem depois, então display:flex vencia sempre.
+     Valia pro #cmdOutput também. A lógica de `travado` estava correta o
+     tempo todo; o CSS é que ignorava. !important porque a regra precisa
+     ganhar de qualquer display futuro declarado por classe. */
+  [hidden]{display:none!important;}
+  /* bug herdado do arquivo original: display:flex no <html> (junto com o
+     <body>) fazia o <body> encolher pro tamanho do conteúdo em vez de
+     preencher a largura da sidebar -- <html> fica só com height:100%,
+     quem vira flex container é o <body> sozinho. */
+  html{margin:0;height:100%;}
+  /* Achado 2026-09-23 (em uso): o painel não rolava e o que passasse
+     da altura da sidebar ficava inacessível. Era `overflow:hidden` aqui com
+     `height:100%` no .wrap — só a seção "hoje" tinha área rolável própria,
+     então reator, caixa de comando e lista de projetos não tinham como sair
+     do lugar. O reator, somado ao resto, passou a estourar. Agora quem rola
+     é a página inteira, um scroll só: scroll aninhado em sidebar estreita é
+     pior do que não rolar, porque a roda do mouse pega a área errada. */
+  body{margin:0;width:100%;min-height:100%;overflow-y:auto;overflow-x:hidden;background:
+    radial-gradient(120% 90% at 12% -10%, rgba(63,232,196,.07), transparent 55%), var(--bg);
+    color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:var(--fs-sm);display:flex;flex-direction:column;align-items:stretch;}
+  ::selection{background:rgba(63,232,196,.32);color:var(--text);}
+  :focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:6px;}
+
+  /* scrollbar — Chromium (Electron/VS Code webview), tema em vez de padrão do SO */
+  *::-webkit-scrollbar{width:8px;height:8px;}
+  *::-webkit-scrollbar-track{background:transparent;}
+  *::-webkit-scrollbar-thumb{background:rgba(88,235,205,.22);border-radius:8px;border:2px solid transparent;background-clip:padding-box;}
+  *::-webkit-scrollbar-thumb:hover{background:rgba(88,235,205,.4);background-clip:padding-box;}
+
+  .wrap{container-type:inline-size;container-name:painel;padding:var(--sp-3);
+    display:flex;flex-direction:column;align-items:stretch;width:100%;min-height:100%;}
+
+  .banner{display:flex;align-items:center;gap:var(--sp-2);background:rgba(255,106,82,.14);
+    border:1px solid rgba(255,106,82,.4);color:#ffcabc;font-size:var(--fs-xs);line-height:1.4;
+    padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);margin-bottom:var(--sp-3);box-shadow:var(--shadow-1);}
+  .banner svg{flex:none;color:var(--vermelho);}
+
+  .section-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-2);
+    margin:var(--sp-1) 0 var(--sp-2);padding-bottom:var(--sp-1);border-bottom:1px solid var(--edge);}
+  .section-head .t{font-size:var(--fs-xs);letter-spacing:.16em;color:var(--dim);text-transform:uppercase;font-weight:600;}
+  .section-head .n{font-size:var(--fs-xs);color:var(--teal-dim);font-variant-numeric:tabular-nums;}
+
+  /* Sem overflow próprio: quem rola agora é a página. Manter o scroll aqui
+     criaria dois scrolls concorrentes na mesma sidebar. */
+  .outros{width:100%;padding:0 2px var(--sp-2);}
+  .empty{display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);
+    font-size:var(--fs-xs);color:var(--dim);text-align:center;padding:var(--sp-5) var(--sp-3);line-height:1.5;}
+  .empty svg{opacity:.5;}
+  .divider{width:100%;height:1px;background:linear-gradient(90deg,transparent,var(--edge),transparent);margin:var(--sp-3) 0 var(--sp-2);flex:none;}
+
+  /* ── Reator ──────────────────────────────────────────────────────────
+     Portado da geração B (2026-09-23) na fusão das duas linhagens. Lá ele
+     era alimentado por fetch('/api/progress'); aqui vem do postMessage,
+     lido do disco — mesmo desenho, outra fonte. As cores trocaram de
+     --ativo pra --teal, que é como esta folha chama a mesma cor. */
+  .reactor-wrap{display:flex;flex-direction:column;align-items:center;flex:none;padding-top:var(--sp-2);}
+  .reactor{position:relative;width:min(52vw,128px);aspect-ratio:1;z-index:1;}
+  .reactor svg{width:100%;height:100%;transform:rotate(-90deg);}
+  .seg{fill:#0d211d;stroke:#1c463f;stroke-width:1;transition:fill .4s ease, stroke .4s ease, filter .4s ease;}
+  .seg.lit{fill:var(--teal);stroke:var(--teal);filter:drop-shadow(0 0 3px var(--teal));}
+  .core-glow{position:absolute;inset:22%;border-radius:50%;
+    background:radial-gradient(circle, rgba(63,232,196,.9), rgba(63,232,196,.15) 60%, transparent 75%);
+    animation:pulse-reator 2.6s ease-in-out infinite;filter:blur(2px);transition:background .4s ease;}
+  @keyframes pulse-reator{0%,100%{transform:scale(1);opacity:.75;}50%{transform:scale(1.08);opacity:1;}}
+  .pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:min(8vw,23px);font-weight:600;letter-spacing:.02em;color:#eafffa;}
+  /* --fs-xs (11px) em vez dos 9px que vieram da geração B: 9px é ilegível em
+     tela de alta densidade, e 11px já é o piso usado pelo resto do painel. */
+  .steps{margin-top:var(--sp-1);font-size:var(--fs-xs);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);}
+  .reactor-label{margin-top:4px;font-size:var(--fs-xs);color:var(--dim);text-align:center;
+    line-height:1.4;padding:0 var(--sp-2);max-width:100%;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .reactor-label b{color:var(--text);font-weight:500;}
+
+  /* ── Saúde e sinais ──────────────────────────────────────────────────
+     Portado da geração B (2026-09-23). Lá vinha de fetch('/api/insights');
+     aqui a extensão chama o mesmo insights.js diretamente, porque ele é
+     puro — então o bloco continua vivo com o servidor fora do ar, só
+     envelhecendo junto com o scan. A idade aparece no cabeçalho de
+     propósito: dado velho tem que se anunciar como velho. */
+  .scan-idade{font-size:var(--fs-xs);color:var(--dim);font-variant-numeric:tabular-nums;}
+  .health-item{display:flex;align-items:center;gap:var(--sp-2);background:var(--glass);
+    border:1px solid var(--edge);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);
+    margin-bottom:var(--sp-2);box-shadow:var(--shadow-1);}
+  .health-grade{width:24px;height:24px;border-radius:50%;flex:none;display:flex;
+    align-items:center;justify-content:center;font-size:var(--fs-xs);font-weight:700;}
+  .health-grade.grade-A{background:rgba(63,232,196,.16);color:var(--teal);box-shadow:inset 0 0 0 1px rgba(63,232,196,.4);}
+  .health-grade.grade-B{background:rgba(232,194,63,.14);color:var(--amarelo);box-shadow:inset 0 0 0 1px rgba(232,194,63,.35);}
+  .health-grade.grade-C{background:rgba(255,164,82,.16);color:#ffa452;box-shadow:inset 0 0 0 1px rgba(255,164,82,.35);}
+  .health-grade.grade-D{background:rgba(255,106,82,.16);color:var(--vermelho);box-shadow:inset 0 0 0 1px rgba(255,106,82,.4);}
+  .health-body{flex:1;min-width:0;}
+  .health-name{color:var(--text);font-size:var(--fs-sm);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .health-reason{color:var(--dim);font-size:var(--fs-xs);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+  /* Projeto que o store pegou mas o catálogo ainda não conhece: aparece na
+     lista e no reator, mas fica fora de saúde e sinais até regenerar. Tom
+     informativo, não de alarme — não é erro, é só trabalho pendente de
+     catalogar. */
+  .fora-mapa{background:rgba(63,232,196,.07);border:1px dashed var(--edge);
+    border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);
+    font-size:var(--fs-xs);line-height:1.45;color:var(--dim);}
+  .fora-mapa b{color:var(--text);font-weight:600;}
+  .fora-mapa code{background:rgba(0,0,0,.35);border-radius:4px;padding:1px 5px;
+    font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--teal);}
+
+  .sig-item{background:var(--glass);border:1px solid var(--edge);border-left-width:3px;
+    border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);
+    font-size:var(--fs-xs);line-height:1.4;box-shadow:var(--shadow-1);}
+  .sig-item.alerta{border-left-color:var(--vermelho);}
+  .sig-item.atencao{border-left-color:var(--amarelo);}
+  .sig-item.info{border-left-color:var(--teal-dim);}
+  .sig-proj{color:var(--teal-dim);font-size:var(--fs-xs);letter-spacing:.06em;
+    text-transform:uppercase;margin-top:2px;}
+
+  /* linha de status — 1 card por projeto ativo (recência + progresso), pra
+     responder "qual das minhas sessões abertas agora tá parada" num olhar. */
+  .status-row{display:flex;align-items:center;gap:var(--sp-2);background:var(--glass);
+    border:1px solid var(--edge);border-radius:var(--r-lg);padding:var(--sp-2) var(--sp-3);
+    margin-bottom:var(--sp-2);font-size:var(--fs-xs);position:relative;box-shadow:var(--shadow-1);
+    transition:border-color .15s,box-shadow .15s,background .15s;}
+  .status-row.atual{border-color:var(--edge-hi);background:var(--glass-hi);box-shadow:var(--shadow-2);}
+  .status-row.clickable:hover{border-color:var(--teal);transform:translateY(-1px);}
+
+  .status-dot{width:9px;height:9px;border-radius:50%;flex:none;background:#33484a;
+    box-shadow:0 0 0 3px rgba(255,255,255,.03);}
+  .status-dot.verde{background:var(--teal);box-shadow:0 0 0 3px rgba(63,232,196,.14),0 0 8px 0 var(--teal);}
+  .status-dot.amarelo{background:var(--amarelo);box-shadow:0 0 0 3px rgba(232,194,63,.14),0 0 8px 0 var(--amarelo);}
+  .status-dot.vermelho{background:var(--vermelho);box-shadow:0 0 0 3px rgba(255,106,82,.14),0 0 8px 0 var(--vermelho);}
+  /* único momento de movimento autoral do painel: só a linha mais recente
+     "respira" — reforça "isto está ao vivo agora" sem virar parede de
+     pontinhos piscando quando vários projetos estão verdes ao mesmo tempo. */
+  .status-dot.pulso{animation:respirar 2.6s ease-in-out infinite;}
+  @keyframes respirar{
+    0%,100%{box-shadow:0 0 0 3px rgba(63,232,196,.14),0 0 8px 0 var(--teal);}
+    50%{box-shadow:0 0 0 6px rgba(63,232,196,.1),0 0 16px 2px var(--teal);}
+  }
+  @media (prefers-reduced-motion:reduce){.status-dot.pulso{animation:none;}}
+
+  .status-body{flex:1;min-width:0;}
+  .status-nome{color:var(--text);font-weight:600;font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .status-row.atual .status-nome{font-size:var(--fs-lg);}
+  .status-tempo{color:var(--dim);font-weight:400;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;}
+  .status-info{color:var(--dim);font-size:var(--fs-xs);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .status-bar-wrap{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-2);}
+  .status-bar{flex:1;height:4px;border-radius:3px;background:#0e2b27;overflow:hidden;}
+  .status-bar-fill{height:100%;width:100%;border-radius:3px;background:linear-gradient(90deg,var(--teal-dim),var(--teal));
+    transform:scaleX(0);transform-origin:left;transition:transform .3s ease;}
+  .status-pct{flex:none;color:var(--dim);font-size:var(--fs-xs);font-variant-numeric:tabular-nums;min-width:2.4em;text-align:right;}
+  .status-warn{flex:none;color:var(--vermelho);display:flex;}
+
+  .proj-item{background:var(--glass);border:1px solid var(--edge);border-radius:var(--r-lg);
+    padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);font-size:var(--fs-xs);box-shadow:var(--shadow-1);}
+  .proj-nome{color:var(--text);font-weight:600;}
+  .proj-pct{color:var(--teal);font-size:var(--fs-xs);margin-top:2px;font-variant-numeric:tabular-nums;}
+
+  .clickable{cursor:pointer;padding-right:30px;}
+  .clickable::after{content:"";position:absolute;right:var(--sp-3);top:50%;width:9px;height:9px;
+    transform:translateY(-50%) rotate(-45deg);border-right:1.6px solid var(--dim);border-top:1.6px solid var(--dim);
+    transition:border-color .15s,transform .15s;}
+  .clickable:hover::after{border-color:var(--teal);transform:translateY(-50%) rotate(-45deg) translateX(2px);}
+  .clickable:active{transform:scale(.985);}
+
+  /* ajuste estrutural por largura do container (sidebar primária, secundária,
+     ou redimensionada) — não é escala fluida ingênua: some info secundária
+     nos extremos estreitos, e ganha respiro nos largos. */
+  @container painel (max-width: 210px){
+    .status-info{display:none;}
+    .status-row.atual .status-nome{font-size:var(--fs-md);}
+  }
+  @container painel (min-width: 360px){
+    .wrap{padding:var(--sp-4);}
+    .status-row{padding:var(--sp-3) var(--sp-4);}
+    :root{--fs-xs:11.5px;--fs-sm:12.5px;--fs-md:13.5px;--fs-lg:16px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- Reator: o close-up do projeto em foco (esta tarefa, agora). A lista de
+       projetos mais abaixo é o zoom-out. Portado da geração B em 2026-09-23. -->
+  <div class="reactor-wrap">
+    <div class="reactor">
+      <svg viewBox="0 0 100 100" id="ring" role="img" aria-label="progresso da tarefa atual"></svg>
+      <div class="core-glow"></div>
+      <div class="pct" id="pct">0%</div>
+    </div>
+    <div class="steps" id="steps">0 / 0 etapas</div>
+    <div class="reactor-label" id="reactorLabel">sistema em espera</div>
+  </div>
+  <div class="banner" id="banner" hidden>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 1 14h14L8 1.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.2v3.6M8 11.8v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    <span>nenhum hook rodou nos últimos 15 min — Claude Code pode ter travado</span>
+  </div>
+  <div class="section-head"><span class="t">projetos</span><span class="n" id="statusCount"></span></div>
+  <div id="statusList"><div class="empty">nenhum projeto com atividade ainda</div></div>
+  <div class="divider"></div>
+  <!-- Saúde e sinais: escondidos por completo quando não há scan (servidor
+       nunca rodou nesta máquina) em vez de mostrar seção vazia. -->
+  <div id="insightsBloco" hidden>
+    <div class="section-head">
+      <span class="t">saúde</span><span class="scan-idade" id="scanIdade"></span>
+    </div>
+    <div id="healthList"></div>
+    <div class="fora-mapa" id="foraMapa" hidden></div>
+    <div class="section-head" id="sinaisHead"><span class="t">sinais</span></div>
+    <div id="signalsList"></div>
+    <div class="divider"></div>
+  </div>
+  <div class="outros">
+    <div class="section-head"><span class="t" id="hojeTitle">hoje</span></div>
+    <div id="hojeList"><div class="empty">nenhuma edição hoje ainda</div></div>
+  </div>
+</div>
+<script>
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const ICON_WARN = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 1.5 1 14h14L8 1.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.2v3.6M8 11.8v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+const ICON_SIGNAL = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M7 9a7 7 0 0 1 10 0M4.5 6.5a11 11 0 0 1 15 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+// root cause do "trava em 100%": ordenar só por progress.updatedAt ignora
+// projetos que só têm activity (sem plano de checkbox / TodoWrite) — um
+// 100% antigo nunca perde pra atividade real mais recente. lastTouch cobre
+// Bash sem arquivo (docker, scripts...), que não vira progress nem activity.
+function ultimaAtividade(p) {
+  return Math.max(p.progress?.updatedAt || 0, p.activity?.[0]?.ts || 0, p.lastTouch || 0);
+}
+
+function tempoRelativo(ts) {
+  if (!ts) return '';
+  const diffMin = Math.round((Date.now() - ts) / 60000);
+  if (diffMin < 1) return 'agora';
+  if (diffMin < 60) return `${diffMin}min`;
+  return `${Math.round(diffMin / 60)}h`;
+}
+
+// plano fechado (sem activeLabel) fica "congelado" pra sempre se rolar
+// atividade não-checkbox (script/spec/worktree) depois dele fechar — trata
+// como se não houvesse progress ativo, cai no fallback de atividade recente
+// já usado quando não existe plano nenhum (afeta bolinha/barra/texto juntos).
+function progressoEfetivo(p) {
+  const progressBruto = p && p.progress;
+  const atividades = (p && p.activity) || [];
+  const temAtividade = !!atividades.length;
+  const atividadeAposConclusao = temAtividade && progressBruto && !progressBruto.activeLabel
+    && atividades[0].ts > (progressBruto.updatedAt || 0);
+  return atividadeAposConclusao ? null : progressBruto;
+}
+
+function infoLinha(p) {
+  const progress = progressoEfetivo(p);
+  const atividades = p.activity || [];
+  const temAtividade = !!atividades.length;
+  if (progress && progress.activeLabel) return `construindo: ${escapeHtml(progress.activeLabel)}`;
+  if (progress && progress.total) return 'tarefa concluída';
+  if (temAtividade) return `ativo: ${escapeHtml(atividades[0].file)}`;
+  return 'sistema em espera';
+}
+
+function corRecencia(ts) {
+  if (!ts) return '';
+  const diffMin = (Date.now() - ts) / 60000;
+  if (diffMin < 5) return 'verde';
+  if (diffMin < 15) return 'amarelo';
+  return 'vermelho';
+}
+
+function renderStatusList(projetos, currentProject) {
+  const list = document.getElementById('statusList');
+  const count = document.getElementById('statusCount');
+  if (!projetos.length) {
+    count.textContent = '';
+    list.innerHTML = `<div class="empty">${ICON_SIGNAL}<span>nenhum projeto com atividade ainda</span></div>`;
+    return;
+  }
+  const ordenados = projetos.slice().sort((a, b) => ultimaAtividade(b) - ultimaAtividade(a));
+  count.textContent = String(ordenados.length);
+  list.innerHTML = ordenados.map((p, i) => {
+    const ehAtual = p.projectId === currentProject || p.projectName === currentProject;
+    const progress = progressoEfetivo(p);
+    const ultima = ultimaAtividade(p);
+    const tempo = tempoRelativo(ultima);
+    const cor = corRecencia(ultima);
+    // só a linha #0 (mais recente de todo o painel) pulsa — ver @keyframes
+    // respirar: 1 sinal de "ao vivo" por vez, não uma parede piscando.
+    const pulsa = i === 0 && cor === 'verde';
+    const barra = progress
+      ? `<div class="status-bar-wrap">
+          <div class="status-bar"><div class="status-bar-fill" style="transform:scaleX(${(progress.percent || 0) / 100})"></div></div>
+          <span class="status-pct">${progress.percent || 0}%</span>
+        </div>`
+      : '';
+    const aviso = (p.progress && p.progress.viaBash)
+      ? `<span class="status-warn" title="checkbox editado via Bash — Edit/Write manual recomendado">${ICON_WARN}</span>` : '';
+    // path do clique é o arquivo mais recente tocado (mesmo comportamento
+    // do reactor de antes: abre o que você tava fazendo, não a pasta) — a
+    // extensão ainda tenta a URL mapeada (simbionte-urls.json) primeiro,
+    // no lado do host, então isso funciona pra apps web também.
+    const arquivoRecente = (p.activity && p.activity[0]) ? p.activity[0].path : '';
+    return `
+      <div class="status-row${ehAtual ? ' atual' : ''} clickable"
+           data-project-id="${escapeHtml(p.projectId || '')}"
+           data-path="${escapeHtml(arquivoRecente)}"
+           tabindex="0" role="button">
+        <div class="status-dot ${cor}${pulsa ? ' pulso' : ''}"></div>
+        <div class="status-body">
+          <div class="status-nome">${escapeHtml(p.projectName)} <span class="status-tempo">${tempo}</span></div>
+          <div class="status-info">${infoLinha(p)}</div>
+          ${barra}
+        </div>
+        ${aviso}
+      </div>`;
+  }).join('');
+}
+
+function hojeLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function renderHoje(projetos) {
+  const hoje = hojeLocal();
+  const doDia = projetos
+    .filter(p => p.today && p.today.date === hoje)
+    .sort((a, b) => b.today.count - a.today.count);
+  const hojeList = document.getElementById('hojeList');
+  const hojeTitle = document.getElementById('hojeTitle');
+  if (!doDia.length) {
+    hojeTitle.textContent = 'hoje';
+    hojeList.innerHTML = '<div class="empty">nenhuma edição hoje ainda</div>';
+    return;
+  }
+  const total = doDia.reduce((soma, p) => soma + p.today.count, 0);
+  hojeTitle.textContent = `hoje — ${total} edições em ${doDia.length} projeto${doDia.length > 1 ? 's' : ''}`;
+  hojeList.innerHTML = doDia.map(p => `
+    <div class="proj-item">
+      <div class="proj-nome">${escapeHtml(p.projectName)}</div>
+      <div class="proj-pct">${escapeHtml(String(p.today.count))} edições</div>
+    </div>`).join('');
+}
+
+// ── Reator ────────────────────────────────────────────────────────────
+// Miçangas hexagonais em anel, acesas proporcionalmente ao progresso.
+// Portado da geração B em 2026-09-23; lá o dado vinha de fetch('/api/progress'),
+// aqui vem do mesmo `projetos` que o resto do painel já recebe por postMessage.
+const SEGMENTS = 40;
+const ringEl = document.getElementById('ring');
+(function montarMicangas(){
+  const R = 42, CX = 50, CY = 50, NS = 'http://www.w3.org/2000/svg';
+  for (let i = 0; i < SEGMENTS; i++) {
+    const a = (i / SEGMENTS) * Math.PI * 2;
+    const bx = CX + Math.cos(a) * R, by = CY + Math.sin(a) * R;
+    const pts = [];
+    for (let k = 0; k < 6; k++) {
+      const ang = -Math.PI / 6 + k * Math.PI / 3;
+      pts.push(`${(bx + Math.cos(ang) * 3.1).toFixed(2)},${(by + Math.sin(ang) * 3.1).toFixed(2)}`);
+    }
+    const bead = document.createElementNS(NS, 'polygon');
+    bead.setAttribute('points', pts.join(' '));
+    bead.classList.add('seg');
+    ringEl.appendChild(bead);
+  }
+})();
+const segs = [...ringEl.querySelectorAll('.seg')];
+
+// Sem isto, um progresso antigo (tarefa concluída, ou abandonada no meio)
+// fica preso na tela pra sempre — só uma marcação nova o sobrescreve, e isso
+// pode nunca mais acontecer na mesma sessão.
+const PROGRESSO_EXPIRA_MS = 15 * 60 * 1000;
+
+function renderReator(projetos, currentProject) {
+  // O reator mostra o projeto em foco. Sem foco resolvido, cai no mais
+  // recentemente tocado — senão o anel fica morto justamente quando há
+  // trabalho acontecendo, que é quando ele mais importa.
+  // Achado 2026-09-23: a janela do VS Code aberta num projeto PARADO
+  // (loja-web, plano 100% desde a manhã) travava o reator
+  // nele enquanto o trabalho real acontecia em outro repo (o Claude Code roda
+  // em qualquer pasta, não só na da janela). O foco da janela só vale se
+  // estiver vivo; parado, cede pro projeto com atividade mais recente.
+  const foco = projetos.find(p => p.projectId === currentProject);
+  const recente = [...projetos].sort((a, b) => (ultimaAtividade(b) || 0) - (ultimaAtividade(a) || 0))[0];
+  const focoVivo = foco && (Date.now() - ultimaAtividade(foco)) < PROGRESSO_EXPIRA_MS;
+  const alvo = focoVivo ? foco : (recente || foco);
+
+  const progress = alvo ? progressoEfetivo(alvo) : null;
+
+  // Achado 2026-09-23: expirar só pelo relógio do PLANO zerava o reator no
+  // meio de trabalho real. O progresso só avança quando um checkbox de plano
+  // muda; editar código por 20 minutos não mexe nele. O reator ia a 0%
+  // exatamente durante o trabalho mais intenso — o oposto do que ele existe
+  // pra mostrar. Agora atividade recente no projeto (ultimaAtividade já
+  // considera arquivo tocado e lastTouch) segura o progresso em pé; o
+  // esquecimento continua valendo pro projeto de fato abandonado.
+  const vivo = alvo && (Date.now() - ultimaAtividade(alvo)) < PROGRESSO_EXPIRA_MS;
+  const expirado = !progress || !progress.updatedAt
+    || (!vivo && (Date.now() - progress.updatedAt) > PROGRESSO_EXPIRA_MS);
+
+  const pct = expirado ? 0 : (progress.percent || 0);
+  const lit = Math.round((pct / 100) * SEGMENTS);
+  segs.forEach((s, i) => s.classList.toggle('lit', i < lit));
+
+  document.getElementById('pct').textContent = pct + '%';
+  document.getElementById('steps').textContent = expirado
+    ? '0 / 0 etapas'
+    : `${progress.completed || 0} / ${progress.total || 0} etapas`;
+  document.getElementById('reactorLabel').innerHTML = (!expirado && progress.activeLabel)
+    ? `construindo: <b>${escapeHtml(progress.activeLabel)}</b>`
+    : (!expirado && progress.total ? 'tarefa concluída' : 'sistema em espera');
+}
+
+// ── Saúde e sinais ────────────────────────────────────────────────────
+// Os dados chegam prontos da extensão, que chama o mesmo insights.js do
+// servidor. Aqui só desenha.
+function idadeLegivel(ms) {
+  if (ms == null) return '';
+  const min = Math.round(ms / 60000);
+  if (min < 2) return 'agora';
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  return h < 24 ? `há ${h}h` : `há ${Math.round(h / 24)}d`;
+}
+
+function renderInsights(insights) {
+  const bloco = document.getElementById('insightsBloco');
+  // Sem scan não há o que mostrar: o servidor nunca rodou nesta máquina, ou
+  // o arquivo está ilegível. Seção inteira some, em vez de ficar vazia.
+  if (!insights) { bloco.hidden = true; return; }
+  bloco.hidden = false;
+
+  document.getElementById('scanIdade').textContent = idadeLegivel(insights.scanAgeMs);
+
+  const healthList = document.getElementById('healthList');
+  const linhas = Object.keys(insights.health || {})
+    .map(id => ({ id, ...insights.health[id] }))
+    .sort((a, b) => a.score - b.score); // pior primeiro: é o que pede ação
+
+  const assinaturaSaude = JSON.stringify(linhas);
+  if (healthList.dataset.assinatura !== assinaturaSaude) {
+    healthList.dataset.assinatura = assinaturaSaude;
+    healthList.innerHTML = linhas.length
+      ? linhas.map(r => `
+        <div class="health-item">
+          <div class="health-grade grade-${escapeHtml(r.grade)}">${escapeHtml(r.grade)}</div>
+          <div class="health-body">
+            <div class="health-name">${escapeHtml(nomeDoProjeto(r.id))}</div>
+            <div class="health-reason">${escapeHtml(r.reasons && r.reasons[0] ? r.reasons[0].label : 'tudo em dia')}</div>
+          </div>
+        </div>`).join('')
+      : '<div class="empty">nenhum projeto ativo catalogado</div>';
+  }
+
+  // Projetos que o store pegou e o catálogo ainda não conhece. Some quando
+  // não há nenhum — aviso permanente na tela é aviso que ninguém lê.
+  const foraMapa = document.getElementById('foraMapa');
+  const fora = insights.naoCatalogados || [];
+  foraMapa.hidden = !fora.length;
+  if (fora.length) {
+    const quais = fora.slice(0, 3).map(escapeHtml).join(', ');
+    const resto = fora.length > 3 ? ` e mais ${fora.length - 3}` : '';
+    foraMapa.innerHTML = `<b>${fora.length} projeto${fora.length > 1 ? 's' : ''} fora do catálogo</b><br>`
+      + `${quais}${resto} — aparece${fora.length > 1 ? 'm' : ''} acima, mas fica${fora.length > 1 ? 'm' : ''} `
+      + `fora de saúde e sinais até rodar <code>node gerar-data.js --gravar</code>`;
+  }
+
+  const signalsList = document.getElementById('signalsList');
+  const sinais = (insights.synthesis || []).slice(0, 5); // já vêm ordenados por severidade
+  const assinaturaSinais = JSON.stringify(sinais);
+  if (signalsList.dataset.assinatura !== assinaturaSinais) {
+    signalsList.dataset.assinatura = assinaturaSinais;
+    signalsList.innerHTML = sinais.length
+      ? sinais.map(s => `
+        <div class="sig-item ${escapeHtml(s.severity)}">
+          <div>${escapeHtml(s.message)}</div>
+          <div class="sig-proj">${escapeHtml(nomeDoProjeto(s.projectId))}</div>
+        </div>`).join('')
+      : '<div class="empty">tudo tranquilo</div>';
+  }
+  document.getElementById('sinaisHead').hidden = !sinais.length;
+}
+
+// O id do catálogo nem sempre é legível ("MEU-APP-V4"). A extensão manda
+// os nomes junto; sem eles, mostra o id, que é melhor que nada.
+let NOMES_PROJETO = {};
+function nomeDoProjeto(id) { return NOMES_PROJETO[id] || id; }
+
+function render(projetos, currentProject, travado, insights) {
+  document.getElementById('banner').hidden = !travado;
+  renderReator(projetos, currentProject);
+  renderStatusList(projetos, currentProject);
+  renderInsights(insights);
+  renderHoje(projetos);
+}
+
+const vscode = acquireVsCodeApi();
+
+function abrirLinha(item) {
+  if (!item) return;
+  vscode.postMessage({
+    type: 'openApp',
+    projectId: item.dataset.projectId || null,
+    path: item.dataset.path || null,
+  });
+}
+document.getElementById('statusList').addEventListener('click', (ev) => {
+  abrirLinha(ev.target.closest('.status-row'));
+});
+document.getElementById('statusList').addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const item = ev.target.closest('.status-row');
+  if (!item) return;
+  ev.preventDefault();
+  abrirLinha(item);
+});
+
+window.addEventListener('message', (ev) => {
+  if (!ev.data) return;
+  if (ev.data.type === 'update') {
+    if (ev.data.nomesProjeto) NOMES_PROJETO = ev.data.nomesProjeto;
+    // naoCatalogados viaja fora de `insights` (é do store, não do scan), mas
+    // é exibido dentro do bloco de saúde — junta aqui.
+    const insights = ev.data.insights
+      ? { ...ev.data.insights, naoCatalogados: ev.data.naoCatalogados || [] }
+      : null;
+    render(ev.data.projetos || [], ev.data.currentProject, ev.data.travado, insights);
+  }
+});
+</script>
+</body>
+</html>

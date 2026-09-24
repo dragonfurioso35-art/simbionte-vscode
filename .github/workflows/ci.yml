@@ -1,0 +1,13 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Alguns testes chamam os hooks instalados em ~/.claude, como na máquina real.
+      - run: mkdir -p ~/.claude && cp claude-hooks/*.js ~/.claude/ && cp store.js ~/.claude/simbionte-store.js
+      - run: node test-all.js

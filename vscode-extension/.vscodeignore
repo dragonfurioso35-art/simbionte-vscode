@@ -1,0 +1,5 @@
+*.vsix
+.vscodeignore
+.git/**
+prepare.js
+simbionte-urls.example.json

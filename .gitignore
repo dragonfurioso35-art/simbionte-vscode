@@ -1,0 +1,23 @@
+# dado de runtime, não código-fonte
+activity.log.jsonl
+progress.state.*.json
+
+# trava de instância única + log de crash-loop do supervisor (runtime, não código)
+.supervisor.lock
+.supervisor-crash.log
+
+# artefato de build (gerado por `vsce package`, reproduzível a partir de vscode-extension/)
+*.vsix
+
+node_modules/
+
+# Copias de build: o deploy.js poe aqui as libs da raiz (scan-store,
+# insights, data) porque o vsce so empacota o que esta sob
+# vscode-extension/. Versionar a copia convida a divergencia — a fonte
+# e uma so, na raiz.
+vscode-extension/lib/
+
+# copiados da raiz pelo prepare.js no empacotamento
+vscode-extension/README.md
+vscode-extension/LICENSE
+vscode-extension/CHANGELOG.md
