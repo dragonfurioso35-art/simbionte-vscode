@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 — 2026-09-24
+
+- README com print do painel.
+
 ## 1.0.0 — 2026-09-24
 
 Primeira versão pública.

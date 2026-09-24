@@ -9,6 +9,8 @@ servidor, sem conta, sem enviar nada pra lugar nenhum.
 > when hooks stop firing. 100% local — two small Claude Code hooks write
 > JSON to `~/.claude/simbionte/`, the panel reads it. UI in Portuguese.
 
+<img src="https://raw.githubusercontent.com/dragonfurioso35-art/simbionte-vscode/main/docs/painel.png" alt="Painel do Simbionte: progresso do plano atual em 62%, lista de projetos e edições de hoje" width="360">
+
 ## O que ele mostra
 
 - **Progresso do plano** — lê os checkboxes de `docs/superpowers/plans/*.md`
