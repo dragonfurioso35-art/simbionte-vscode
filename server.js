@@ -82,11 +82,15 @@ try {
   activity = linhas.slice(-ACTIVITY_KEEP).reverse().map(l => JSON.parse(l));
 } catch (e) { /* sem log ainda (1a execução) */ }
 
+// Os dois lados passam pela mesma normalização: antes só o caminho recebido
+// virava '\', e fora do Windows resolvePath() devolve '/' — nada batia.
+const normCaminho = s => String(s).replace(/[\\/]+/g, '/').toLowerCase().replace(/\/+$/, '');
+
 function findProjectForFile(filePath) {
-  const norm = filePath.replace(/\//g, '\\').toLowerCase();
+  const norm = normCaminho(filePath);
   for (const p of PROJECTS) {
-    const dir = resolvePath(p.id).toLowerCase();
-    if (norm.startsWith(dir + '\\') || norm === dir) return p;
+    const dir = normCaminho(resolvePath(p.id));
+    if (norm.startsWith(dir + '/') || norm === dir) return p;
   }
   return null;
 }
@@ -104,10 +108,10 @@ const NO_PROJECT_SCOPE = '_unscoped';
 // subpasta (ex: worktree, monorepo aberto num subdiretório).
 function findProjectForCwd(cwd) {
   if (!cwd) return null;
-  const norm = String(cwd).replace(/\//g, '\\').toLowerCase().replace(/\\+$/, '');
+  const norm = normCaminho(cwd);
   for (const p of PROJECTS) {
-    const dir = resolvePath(p.id).toLowerCase().replace(/\\+$/, '');
-    if (norm === dir || norm.startsWith(dir + '\\')) return p;
+    const dir = normCaminho(resolvePath(p.id));
+    if (norm === dir || norm.startsWith(dir + '/')) return p;
   }
   return null;
 }
