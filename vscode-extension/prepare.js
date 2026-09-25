@@ -9,7 +9,7 @@ const ROOT = path.join(__dirname, '..');
 const LIB = path.join(__dirname, 'lib');
 fs.mkdirSync(path.join(LIB, 'hooks'), { recursive: true });
 
-for (const f of ['scan-store.js', 'insights.js', 'data.js', 'store.js']) {
+for (const f of ['scan-store.js', 'insights.js', 'data.js', 'store.js', 'hooks-settings.js']) {
   fs.copyFileSync(path.join(ROOT, f), path.join(LIB, f));
 }
 for (const f of fs.readdirSync(path.join(ROOT, 'claude-hooks')).filter(f => f.endsWith('.js'))) {

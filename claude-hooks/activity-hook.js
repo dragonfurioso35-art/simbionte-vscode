@@ -19,7 +19,7 @@ process.stdin.on('data', c => input += c);
 process.stdin.on('end', () => {
   try {
     const data = JSON.parse(input);
-    registrarHeartbeat();
+    registrarHeartbeat('PostToolUse', data);
     const fileDireto = data.tool_input?.file_path;
     const filePlano = fileDireto || extrairPlanoDoComandoBash(data.tool_input?.command);
 

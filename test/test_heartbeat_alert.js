@@ -1,32 +1,62 @@
-// Self-check da maquina de estado do alerta de travamento (F1) - mesma
-// logica de extension.js:iniciarAlertaTravamento, sem vscode.
+// Watchdog por estado (1.1.0): testa a função REAL (store.js:estadoDaSessao /
+// resumoSessoes) e o estado-hook.js de ponta a ponta, num HOME temporário.
+// Antes este teste copiava a lógica do extension.js — copiar lógica em teste
+// deixa o teste verde enquanto o código de verdade muda.
 const assert = require('assert');
-const LIMITE = 15 * 60 * 1000;
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const { estadoDaSessao, resumoSessoes } = require('../store.js');
 
-function criarEstado() {
-  let vistoFresco = false, jaAlertou = false;
-  return {
-    tick(agora, lastRun) {
-      let alertou = false;
-      if (agora - lastRun < LIMITE) { vistoFresco = true; jaAlertou = false; }
-      else if (vistoFresco && !jaAlertou) { jaAlertou = true; alertou = true; }
-      return alertou;
-    },
-  };
-}
+const min = m => m * 60 * 1000;
+const LIMITE = min(15);
+const AGORA = 10 * 60 * 60 * 1000;
+const reg = (evento, atrasMin, extra) => ({ evento, ts: AGORA - min(atrasMin), ...extra });
+const estado = r => (estadoDaSessao(r, AGORA, LIMITE) || {}).estado || null;
 
-// 1) nunca viu heartbeat fresco (extensao acabou de abrir, Claude Code parado) -> nunca alerta
-let e1 = criarEstado();
-assert.strictEqual(e1.tick(1_000_000, 0), false, 'nao deveria alertar sem nunca ter visto fresco');
+// Os três falsos alarmes da 1.0.x: silêncio longo, mas explicado.
+assert.strictEqual(estado(reg('Stop', 40)), 'aguardando', 'Claude terminou e espera você: não é travamento');
+assert.strictEqual(estado(reg('Notification', 40, { tipo: 'permission_prompt' })), 'aguardando');
+assert.strictEqual(estado(reg('PreToolUse', 40, { comando: 'npm test' })), 'comando', 'build longo não é travamento');
+assert.strictEqual(estadoDaSessao(reg('PreToolUse', 40, { comando: 'npm test' }), AGORA, LIMITE).comando, 'npm test');
+assert.strictEqual(estado(reg('SessionEnd', 40)), 'encerrada');
+// Único caso de alerta: estava trabalhando e parou de dar sinal.
+assert.strictEqual(estado(reg('PostToolUse', 20)), 'travada');
+assert.strictEqual(estado(reg('UserPromptSubmit', 20)), 'travada');
+assert.strictEqual(estado(reg('PostToolUse', 5)), 'trabalhando');
+// Limite configurável é respeitado.
+assert.strictEqual(estadoDaSessao(reg('PostToolUse', 20), AGORA, min(30)).estado, 'trabalhando');
+// Silêncio de horas: já alertou, sai do painel (não alarma no dia seguinte).
+assert.strictEqual(estado(reg('PostToolUse', 60 * 4)), null);
+assert.strictEqual(estadoDaSessao(null, AGORA, LIMITE), null, 'sem sessão = nunca travada');
 
-// 2) viu fresco, depois passa 20min sem heartbeat -> alerta uma vez
-let e2 = criarEstado();
-assert.strictEqual(e2.tick(0, 0), false); // fresco
-assert.strictEqual(e2.tick(20 * 60 * 1000, 0), true, 'deveria alertar apos 20min parado');
-assert.strictEqual(e2.tick(21 * 60 * 1000, 0), false, 'nao deveria repetir alerta no mesmo episodio');
+// Várias sessões: a travada ganha; senão, a mais recente.
+assert.strictEqual(resumoSessoes({ a: reg('Stop', 1), b: reg('PostToolUse', 20) }, AGORA, LIMITE).sessionId, 'b');
+assert.strictEqual(resumoSessoes({ a: reg('Stop', 10), b: reg('PreToolUse', 2) }, AGORA, LIMITE).sessionId, 'b');
+assert.strictEqual(resumoSessoes({}, AGORA, LIMITE), null);
 
-// 3) volta a ficar fresco -> reseta, permite alertar de novo num novo episodio
-assert.strictEqual(e2.tick(22 * 60 * 1000, 22 * 60 * 1000), false); // fresco de novo
-assert.strictEqual(e2.tick(42 * 60 * 1000, 22 * 60 * 1000), true, 'deveria alertar de novo em novo episodio');
+// Ponta a ponta: o hook de verdade, alimentado por stdin, num HOME isolado.
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'simbionte-hb-'));
+const claude = path.join(home, '.claude');
+fs.mkdirSync(claude, { recursive: true });
+fs.copyFileSync(path.join(__dirname, '..', 'claude-hooks', 'estado-hook.js'), path.join(claude, 'estado-hook.js'));
+fs.copyFileSync(path.join(__dirname, '..', 'store.js'), path.join(claude, 'simbionte-store.js'));
+const rodar = payload => execFileSync(process.execPath, [path.join(claude, 'estado-hook.js')],
+  { input: JSON.stringify(payload), env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8' });
+const sessoes = () => JSON.parse(fs.readFileSync(path.join(claude, 'simbionte', '_heartbeat.json'), 'utf8')).sessoes;
 
-console.log('OK: maquina de estado do alerta de travamento');
+assert.strictEqual(rodar({ hook_event_name: 'UserPromptSubmit', session_id: 's1', prompt: 'oi' }), '',
+  'hook não pode escrever em stdout (vira contexto no UserPromptSubmit)');
+rodar({ hook_event_name: 'PreToolUse', session_id: 's1', tool_name: 'Bash', tool_input: { command: 'npm run build' } });
+assert.deepStrictEqual([sessoes().s1.evento, sessoes().s1.comando], ['PreToolUse', 'npm run build']);
+rodar({ hook_event_name: 'PostToolUseFailure', session_id: 's1', tool_name: 'Bash' });
+assert.strictEqual(sessoes().s1.evento, 'PostToolUse', 'falha de Bash fecha o comando');
+rodar({ hook_event_name: 'Notification', session_id: 's2', notification_type: 'idle_prompt' });
+assert.deepStrictEqual(Object.keys(sessoes()).sort(), ['s1', 's2'], 'uma sessão não apaga a outra');
+assert.strictEqual(sessoes().s2.tipo, 'idle_prompt');
+rodar({ hook_event_name: 'SessionEnd', session_id: 's1', reason: 'prompt_input_exit' });
+assert.strictEqual(sessoes().s1.evento, 'SessionEnd');
+fs.rmSync(home, { recursive: true, force: true });
+
+console.log('OK: watchdog por estado (estadoDaSessao, resumoSessoes, estado-hook)');

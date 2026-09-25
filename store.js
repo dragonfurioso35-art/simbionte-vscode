@@ -269,8 +269,73 @@ function resolverProjetoAtivo(cwd) {
 // disparar sem nenhum sinal visível. Não é monitor automático, só um
 // registro pra checar manualmente ("_heartbeat.json" na pasta simbionte) se
 // o Simbionte parecer desatualizado de novo — comparar lastRun contra agora.
-function registrarHeartbeat() {
-  escreverAtomico('_heartbeat', { lastRun: Date.now() });
+//
+// 1.1.0: além do lastRun (mantido pra checagem manual), guarda o ÚLTIMO
+// evento de cada sessão (`sessoes[session_id]`). "15 min sem hook" sozinho
+// não diz nada — pode ser o Claude esperando você, um build longo ou a
+// sessão encerrada. O último evento diz qual dos casos é (estadoDaSessao).
+// Lock porque várias sessões abertas escrevem no mesmo arquivo.
+const SESSAO_EXPIRA_MS = 24 * 60 * 60 * 1000;
+function registrarHeartbeat(evento, data) {
+  const agora = Date.now();
+  const lock = adquirirLock('_heartbeat');
+  try {
+    let hb = {};
+    try { hb = JSON.parse(fs.readFileSync(path.join(DIR, '_heartbeat.json'), 'utf8')); } catch (e) { /* 1ª vez */ }
+    const sessoes = hb.sessoes || {};
+    if (evento && data && data.session_id) {
+      const reg = { evento, ts: agora };
+      if (data.notification_type) reg.tipo = data.notification_type;
+      if (evento === 'PreToolUse' && data.tool_input && data.tool_input.command) {
+        reg.comando = String(data.tool_input.command).slice(0, 120);
+      }
+      sessoes[data.session_id] = reg;
+    }
+    for (const id of Object.keys(sessoes)) {
+      if (agora - sessoes[id].ts > SESSAO_EXPIRA_MS) delete sessoes[id];
+    }
+    escreverAtomico('_heartbeat', { lastRun: agora, sessoes });
+  } finally { liberarLock(lock); }
 }
 
-module.exports = { resolverProjeto, resolverProjetoAtivo, lerProjeto, atualizarProgresso, registrarAtividade, registrarHeartbeat, progressoDoPlano, projetosExtrasDoPlano, registrarToque, viaBashNovo };
+// Estado de UMA sessão a partir do último evento. Puro (sem disco) pra ser
+// testável e usado igual pela extensão e pelos testes.
+//  - Stop / Notification: Claude terminou a resposta ou pediu algo -> é a vez do usuário
+//  - PreToolUse sem Post depois: comando rodando (build, testes, npm install)
+//  - SessionEnd: acabou
+//  - PostToolUse / PostToolUseFailure / UserPromptSubmit: Claude trabalhando;
+//    só aqui silêncio longo é suspeito.
+// ponytail: Esc (interrupção) não dispara Stop — o último evento fica como
+// "trabalhando"/"comando" e pode virar alerta falso. Upgrade: ler o fim do
+// transcript_path pra detectar "[Request interrupted by user]".
+// ponytail: tool sem hook (Read, Grep, subagente só lendo) não gera evento;
+// uma sessão que passa > limite só lendo cai em "possivelmente travada".
+const ABANDONADA_MS = 3 * 60 * 60 * 1000; // silêncio > 3h: já alertou, sai do painel
+function estadoDaSessao(reg, agora, limiteMs) {
+  if (!reg) return null;
+  const desde = agora - reg.ts;
+  if (reg.evento === 'SessionEnd') return { estado: 'encerrada', desde };
+  if (reg.evento === 'Stop' || reg.evento === 'Notification') {
+    return { estado: 'aguardando', desde, tipo: reg.tipo || null };
+  }
+  if (desde > ABANDONADA_MS) return null;
+  if (reg.evento === 'PreToolUse') return { estado: 'comando', desde, comando: reg.comando || '' };
+  return { estado: desde > limiteMs ? 'travada' : 'trabalhando', desde };
+}
+
+// Sessão que representa o painel: a travada tem prioridade (é o alarme);
+// senão, a com evento mais recente. null = nenhuma sessão conhecida.
+function resumoSessoes(sessoes, agora, limiteMs) {
+  const prioridade = e => (e.estado === 'travada' ? 0 : 1);
+  let escolhida = null;
+  for (const [id, reg] of Object.entries(sessoes || {})) {
+    const e = estadoDaSessao(reg, agora, limiteMs);
+    if (!e) continue;
+    e.sessionId = id;
+    if (!escolhida || prioridade(e) < prioridade(escolhida)
+      || (prioridade(e) === prioridade(escolhida) && e.desde < escolhida.desde)) escolhida = e;
+  }
+  return escolhida;
+}
+
+module.exports = { resolverProjeto, resolverProjetoAtivo, lerProjeto, atualizarProgresso, registrarAtividade, registrarHeartbeat, estadoDaSessao, resumoSessoes, progressoDoPlano, projetosExtrasDoPlano, registrarToque, viaBashNovo };

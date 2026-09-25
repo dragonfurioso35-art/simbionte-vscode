@@ -9,62 +9,73 @@ const URLS_PATH = path.join(os.homedir(), '.claude', 'simbionte-urls.json');
 // progressoDoPlano vem do mesmo módulo que o hook usa — sem isso a extensão
 // teria que reimplementar o parser de checkbox. Vem empacotado em lib/
 // (prepare.js), então funciona mesmo antes de os hooks serem instalados.
-let progressoDoPlano = () => null;
+let progressoDoPlano = () => null, resumoSessoes = () => null;
 try {
-  ({ progressoDoPlano } = require('./lib/store.js'));
+  ({ progressoDoPlano, resumoSessoes } = require('./lib/store.js'));
 } catch (e) { /* rodando do repo sem prepare.js — cai pro cache do hook */ }
+const { ARQUIVOS, hooksFaltando, adicionarHooks, removerHooks } = require('./lib/hooks-settings.js');
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
-// matcher -> arquivo do hook. Mesmo registro que o README pedia pra fazer à mão.
-const HOOKS = [
-  { matcher: 'TodoWrite', file: 'progress-hook.js' },
-  { matcher: 'Edit|Write|Bash', file: 'activity-hook.js' },
-];
-
 function lerSettings() {
   try { return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')); }
   catch (e) { return e.code === 'ENOENT' ? {} : null; } // null = JSON inválido, não sobrescrever
 }
 
-function hooksRegistrados(settings) {
-  const cmds = JSON.stringify((settings && settings.hooks && settings.hooks.PostToolUse) || []);
-  return HOOKS.every(h => cmds.includes(h.file));
-}
-
 // Copia hooks + store pra ~/.claude e registra em settings.json. Idempotente:
-// rodar de novo só atualiza os arquivos (útil depois de atualizar a extensão).
+// rodar de novo só atualiza os arquivos e acrescenta o que faltar (quem veio
+// da 1.0.x ganha os hooks de estado do watchdog sem duplicar os antigos).
 async function instalarHooks(extensionUri) {
   const settings = lerSettings();
   if (settings === null) {
     return vscode.window.showErrorMessage(`Simbionte: ${SETTINGS_PATH} não é um JSON válido — corrija antes de instalar.`);
   }
+  const faltando = hooksFaltando(settings);
+  const eventos = [...new Set(faltando.map(h => h.evento))].join(', ');
   const ok = await vscode.window.showWarningMessage(
-    `O Simbionte vai copiar 3 arquivos pra ${CLAUDE_DIR} e adicionar 2 hooks PostToolUse em settings.json (backup em settings.json.bak).`,
+    `O Simbionte vai copiar ${ARQUIVOS.length} arquivos pra ${CLAUDE_DIR}`
+    + (faltando.length ? ` e adicionar ${faltando.length} hooks em settings.json (${eventos}). Backup do original em settings.json.bak.` : '.'),
     { modal: true }, 'Instalar');
   if (ok !== 'Instalar') return;
 
   const lib = vscode.Uri.joinPath(extensionUri, 'lib').fsPath;
   fs.mkdirSync(CLAUDE_DIR, { recursive: true });
-  for (const h of HOOKS) fs.copyFileSync(path.join(lib, 'hooks', h.file), path.join(CLAUDE_DIR, h.file));
-  // Os hooks fazem require('./simbionte-store') — o store vai como irmão.
-  fs.copyFileSync(path.join(lib, 'store.js'), path.join(CLAUDE_DIR, 'simbionte-store.js'));
+  for (const f of ARQUIVOS) {
+    // Os hooks fazem require('./simbionte-store') — o store vai como irmão.
+    const origem = f === 'simbionte-store.js' ? path.join(lib, 'store.js') : path.join(lib, 'hooks', f);
+    fs.copyFileSync(origem, path.join(CLAUDE_DIR, f));
+  }
 
-  if (!hooksRegistrados(settings)) {
-    if (fs.existsSync(SETTINGS_PATH)) fs.copyFileSync(SETTINGS_PATH, SETTINGS_PATH + '.bak');
-    settings.hooks = settings.hooks || {};
-    settings.hooks.PostToolUse = settings.hooks.PostToolUse || [];
-    const atuais = JSON.stringify(settings.hooks.PostToolUse);
-    for (const h of HOOKS) {
-      if (atuais.includes(h.file)) continue;
-      settings.hooks.PostToolUse.push({
-        matcher: h.matcher,
-        hooks: [{ type: 'command', command: `node "${path.join(CLAUDE_DIR, h.file)}"`, timeout: 3 }],
-      });
-    }
-    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+  if (faltando.length) {
+    // .bak só na 1ª vez: guarda o settings de ANTES do Simbionte. Sobrescrever
+    // a cada instalação trocaria o original por uma cópia já com os hooks.
+    const bak = SETTINGS_PATH + '.bak';
+    if (fs.existsSync(SETTINGS_PATH) && !fs.existsSync(bak)) fs.copyFileSync(SETTINGS_PATH, bak);
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(adicionarHooks(settings, CLAUDE_DIR), null, 2) + '\n');
   }
   vscode.window.showInformationMessage('Simbionte: hooks instalados. Vale nas próximas sessões do Claude Code.');
+}
+
+// Desfaz a instalação: tira do settings.json só as entradas do Simbionte
+// (hooks de outras ferramentas ficam) e apaga os arquivos copiados. Não
+// restaura o .bak de propósito — ele é de antes da instalação, e restaurar
+// jogaria fora tudo que você mudou no settings.json depois disso.
+async function removerHooksCmd() {
+  const settings = lerSettings();
+  if (settings === null) {
+    return vscode.window.showErrorMessage(`Simbionte: ${SETTINGS_PATH} não é um JSON válido — corrija antes de remover.`);
+  }
+  const ok = await vscode.window.showWarningMessage(
+    `O Simbionte vai tirar os hooks dele de settings.json e apagar ${ARQUIVOS.join(', ')} de ${CLAUDE_DIR}. Hooks de outras ferramentas não são tocados.`,
+    { modal: true }, 'Remover');
+  if (ok !== 'Remover') return;
+  if (fs.existsSync(SETTINGS_PATH)) {
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(removerHooks(settings), null, 2) + '\n');
+  }
+  for (const f of ARQUIVOS) {
+    try { fs.unlinkSync(path.join(CLAUDE_DIR, f)); } catch (e) { /* já não existia */ }
+  }
+  vscode.window.showInformationMessage(`Simbionte: hooks removidos. Os dados do painel ficam em ${DIR} (pode apagar a pasta). Agora é só desinstalar a extensão.`);
 }
 
 // Insights calculados AQUI, não buscados por HTTP: insights.js é puro —
@@ -215,7 +226,6 @@ function checarTransicoes(projetos) {
   }
 }
 
-const estadoTravamento = { travado: false };
 let enviarAtual = null;
 
 class SimbiontePainelProvider {
@@ -235,14 +245,12 @@ class SimbiontePainelProvider {
       const atual = projetoAtual();
       const projetos = lerTodosProjetos(atual);
       checarTransicoes(projetos);
-      // Achado 2026-09-23: o banner lia `estadoTravamento.travado`, que só é
-      // recalculado pelo timer de 60s — então ele continuava na tela por até
-      // um minuto DEPOIS de os hooks voltarem a rodar. Aqui o estado é lido
-      // do disco na hora, e o banner some no próximo ciclo de 5s.
-      // O timer de 60s continua existindo, mas só para o popup do SO, que
-      // não pode disparar a cada poll.
+      // Achado 2026-09-23: o banner lia um estado recalculado pelo timer de
+      // 60s e ficava na tela até um minuto DEPOIS de os hooks voltarem.
+      // Aqui o estado é lido do disco na hora (ciclo de 5s); o timer de 60s
+      // é só pro popup, que não pode disparar a cada poll.
       webviewView.webview.postMessage({
-        type: 'update', projetos, currentProject: atual, travado: hooksTravados(),
+        type: 'update', projetos, currentProject: atual, sessao: sessaoAtual(),
         insights: lerInsights(),
         // Os insights vêm com o id do catálogo ("MEU-APP-V4"); o nome
         // legível só existe no data.js, que é do lado da extensão.
@@ -293,52 +301,43 @@ class SimbiontePainelProvider {
   }
 }
 
-const LIMITE_TRAVADO_MS = 15 * 60 * 1000;
-
-// Lê o heartbeat do disco na hora, em vez de devolver um estado calculado
-// por um timer lento. Quem pergunta "está travado agora?" precisa da
-// resposta de agora — o banner é um alarme, e alarme que demora a desligar
-// treina a pessoa a ignorá-lo.
-function hooksTravados() {
-  let lastRun = 0;
-  try {
-    lastRun = JSON.parse(fs.readFileSync(path.join(DIR, '_heartbeat.json'), 'utf8')).lastRun || 0;
-  } catch (e) { /* sem heartbeat ainda — ver abaixo */ }
-  // Sem heartbeat nenhum não é "travado": é máquina onde nenhum hook rodou
-  // ainda. Alarmar aí seria ruído na primeira execução.
-  if (!lastRun) return false;
-  return (Date.now() - lastRun) > LIMITE_TRAVADO_MS;
+function limiteTravadoMs() {
+  const min = Number(vscode.workspace.getConfiguration('simbionte').get('limiteTravadoMin', 15));
+  return Math.max(1, min || 15) * 60 * 1000;
 }
 
+function lerSessoes() {
+  try { return JSON.parse(fs.readFileSync(path.join(DIR, '_heartbeat.json'), 'utf8')).sessoes || {}; }
+  catch (e) { return {}; }
+}
+
+// Lido do disco na hora, a cada envio: o banner é um alarme, e alarme que
+// demora a desligar treina a pessoa a ignorá-lo. Sem sessão conhecida
+// (hooks da 1.0.x, ou nenhum hook rodou ainda) = null, nunca "travada".
+function sessaoAtual() {
+  const limite = limiteTravadoMs();
+  const s = resumoSessoes(lerSessoes(), Date.now(), limite);
+  if (s) s.limiteMin = Math.round(limite / 60000);
+  return s;
+}
+
+// Popup só na transição pra "travada", uma vez por episódio de cada sessão.
+// O banner já mostra o estado; o popup é pra quem está em outra aba.
 function iniciarAlertaTravamento() {
-  let vistoFresco = false;
-  let jaAlertou = false;
-  const heartbeatPath = path.join(DIR, '_heartbeat.json');
-  const timer = setInterval(() => {
-    let lastRun = 0;
-    try { lastRun = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8')).lastRun || 0; } catch (e) { /* sem heartbeat ainda */ }
-    const travadoAntes = estadoTravamento.travado;
-    if (Date.now() - lastRun < LIMITE_TRAVADO_MS) {
-      vistoFresco = true;
-      jaAlertou = false;
-      estadoTravamento.travado = false;
-    } else if (vistoFresco) {
-      estadoTravamento.travado = true;
-      if (!jaAlertou) {
-        jaAlertou = true;
-        // já é showWarningMessage (não notificar()) — esse já tinha o botão
-        // "Ver Simbionte", não precisa duplicar com outro popup genérico.
-        vscode.window.showWarningMessage(
-          'Simbionte: nenhum hook rodou nos últimos 15 min — Claude Code pode ter travado.',
-          'Ver Simbionte'
-        ).then(escolha => {
-          if (escolha) vscode.commands.executeCommand('workbench.view.extension.simbionte');
-        });
-      }
-    }
-    if (estadoTravamento.travado !== travadoAntes && enviarAtual) enviarAtual();
+  const alertadas = new Set();
+  return setInterval(() => {
+    const s = sessaoAtual();
+    const travada = s && s.estado === 'travada' ? s.sessionId : null;
+    for (const id of alertadas) if (id !== travada) alertadas.delete(id);
+    if (!travada || alertadas.has(travada)) return;
+    alertadas.add(travada);
+    vscode.window.showWarningMessage(
+      `Simbionte: o Claude Code estava trabalhando e está sem sinal há mais de ${s.limiteMin} min — pode ter travado.`,
+      'Ver Simbionte'
+    ).then(escolha => {
+      if (escolha) vscode.commands.executeCommand('workbench.view.extension.simbionte');
+    });
   }, 60 * 1000);
-  return timer;
 }
 
 function activate(context) {
@@ -349,11 +348,22 @@ function activate(context) {
   const timer = iniciarAlertaTravamento();
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
   context.subscriptions.push(
-    vscode.commands.registerCommand('simbionte.instalarHooks', () => instalarHooks(context.extensionUri))
+    vscode.commands.registerCommand('simbionte.instalarHooks', () => instalarHooks(context.extensionUri)),
+    vscode.commands.registerCommand('simbionte.removerHooks', removerHooksCmd),
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('simbionte.limiteTravadoMin') && enviarAtual) enviarAtual();
+    })
   );
-  // Sem hooks o painel fica vazio pra sempre — avisa uma vez por sessão.
-  if (!hooksRegistrados(lerSettings())) {
-    vscode.window.showInformationMessage('Simbionte: os hooks do Claude Code ainda não estão instalados.', 'Instalar agora')
+  // Sem hooks o painel fica vazio pra sempre; com hooks da 1.0.x o watchdog
+  // não distingue "esperando você" de "travou". Avisa uma vez por sessão.
+  const settings = lerSettings();
+  const faltando = settings ? hooksFaltando(settings) : [];
+  if (faltando.length) {
+    const nenhum = faltando.length === hooksFaltando({}).length;
+    vscode.window.showInformationMessage(
+      nenhum ? 'Simbionte: os hooks do Claude Code ainda não estão instalados.'
+        : 'Simbionte: há hooks novos (estado da sessão) — atualize pra parar os falsos alarmes de travamento.',
+      nenhum ? 'Instalar agora' : 'Atualizar hooks')
       .then(escolha => { if (escolha) instalarHooks(context.extensionUri); });
   }
 }

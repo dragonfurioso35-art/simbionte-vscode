@@ -1,15 +1,18 @@
 # Simbionte
 
-**Painel ao vivo, dentro do VS Code, do que o Claude Code está fazendo.**
-Progresso dos planos, arquivos tocados e alerta quando a sessão trava — sem
+**Deixou o Claude Code rodando e não sabe se ele terminou, travou ou está
+esperando você?** O Simbionte mostra isso ao vivo numa barra lateral do VS
+Code: progresso dos planos, arquivos tocados e o estado da sessão — sem
 servidor, sem conta, sem enviar nada pra lugar nenhum.
 
-> **EN:** A VS Code sidebar that shows, live, what Claude Code is doing:
-> plan progress (`- [ ]` / `- [x]` checkboxes), files touched, and an alert
-> when hooks stop firing. 100% local — two small Claude Code hooks write
-> JSON to `~/.claude/simbionte/`, the panel reads it. UI in Portuguese.
-
 <img src="https://raw.githubusercontent.com/dragonfurioso35-art/simbionte-vscode/main/docs/painel.png" alt="Painel do Simbionte: progresso do plano atual em 62%, lista de projetos e edições de hoje" width="360">
+
+> **English.** Left Claude Code running and can't tell whether it finished,
+> got stuck or is waiting for you? Simbionte is a VS Code sidebar that shows
+> it live: plan progress (`- [ ]` / `- [x]`), files touched and session state
+> (working, waiting for you, running a command, possibly stuck). 100% local:
+> small Claude Code hooks write JSON to `~/.claude/simbionte/` and the panel
+> reads it. The UI is in Portuguese.
 
 ## O que ele mostra
 
@@ -19,7 +22,11 @@ servidor, sem conta, sem enviar nada pra lugar nenhum.
   chega a 100%.
 - **Atividade** — quais arquivos o agente editou, em qual projeto, e há
   quanto tempo.
-- **Travamento** — se nenhum hook rodar por 15 min, aparece um alerta.
+- **Estado da sessão** — *Claude trabalhando*, *aguardando você* (resposta
+  terminada ou pedido de permissão), *executando comando há N min* (com o
+  comando), *sessão encerrada*. Só alerta **possivelmente travada** quando o
+  Claude estava trabalhando e ficou sem sinal além do limite (15 min por
+  padrão, ajustável em *Settings → Simbionte: Limite Travado Min*).
 - **Checkbox marcado via Bash** — avisa quando o agente fechou item de plano
   por script em vez de Edit/Write (o jeito que mais deixa o painel
   desatualizado).
@@ -37,18 +44,43 @@ servidor, sem conta, sem enviar nada pra lugar nenhum.
 3. Abra uma sessão nova do Claude Code. Pronto — o ícone do Simbionte na
    Activity Bar mostra o painel.
 
-O que o passo 2 faz, pra você saber antes de clicar:
-
-- copia `progress-hook.js`, `activity-hook.js` e `simbionte-store.js` pra `~/.claude/`;
-- adiciona 2 entradas `PostToolUse` no `~/.claude/settings.json`
-  (matchers `TodoWrite` e `Edit|Write|Bash`), **sem mexer** nos hooks que já
-  existem, e salva um `settings.json.bak` antes.
-
-Rodar o comando de novo só atualiza os arquivos (útil depois de atualizar a
-extensão).
+Vindo da 1.0.x? A extensão avisa *"há hooks novos"* → **Atualizar hooks**.
+Sem isso o painel funciona, mas o estado da sessão não aparece.
 
 Requisitos: VS Code 1.85+, Node no PATH (os hooks rodam com `node`),
 Claude Code.
+
+### O que a extensão altera no seu computador
+
+O passo 2 (e só ele — a extensão não mexe em nada sozinha):
+
+- copia 4 arquivos pra `~/.claude/`: `progress-hook.js`, `activity-hook.js`,
+  `estado-hook.js` e `simbionte-store.js`;
+- adiciona entradas no `~/.claude/settings.json`, **sem mexer** nos hooks que
+  já existem:
+
+  | Evento | Matcher | Hook | Pra quê |
+  |---|---|---|---|
+  | `PostToolUse` | `TodoWrite` | progress-hook.js | progresso da lista de tarefas |
+  | `PostToolUse` | `Edit\|Write\|Bash` | activity-hook.js | arquivos tocados, progresso do plano |
+  | `PreToolUse` / `PostToolUseFailure` | `Bash` | estado-hook.js | "executando comando" |
+  | `Notification`, `Stop` | — | estado-hook.js | "aguardando você" |
+  | `UserPromptSubmit` | — | estado-hook.js | "trabalhando" |
+  | `SessionEnd` | — | estado-hook.js | "sessão encerrada" |
+
+- antes de alterar o `settings.json` pela primeira vez, salva o original em
+  `settings.json.bak` (instalações seguintes não sobrescrevem esse backup).
+
+Rodar o comando de novo é seguro: atualiza os arquivos e só acrescenta o que
+faltar, sem duplicar.
+
+### Remover / reverter
+
+`Ctrl+Shift+P` → **Simbionte: Remover hooks do Claude Code**. Tira do
+`settings.json` só as entradas do Simbionte (hooks de outras ferramentas
+ficam) e apaga os 4 arquivos. Depois é só desinstalar a extensão e, se
+quiser, apagar `~/.claude/simbionte/`. O `settings.json.bak` continua lá
+caso você prefira voltar ao arquivo exatamente como era antes da instalação.
 
 ### Opcional: abrir o app do projeto com um clique
 
@@ -58,9 +90,8 @@ Crie `~/.claude/simbionte-urls.json` mapeando id do projeto → URL
 ## Privacidade
 
 Tudo fica no seu disco, em `~/.claude/simbionte/`. A extensão não faz
-nenhuma chamada de rede. Para desinstalar por completo: remova as 2 entradas
-do `settings.json` (ou restaure o `.bak`), apague os 3 arquivos em
-`~/.claude/` e a pasta `~/.claude/simbionte/`.
+nenhuma chamada de rede. O comando de um Bash em execução é guardado ali
+(primeiros 120 caracteres) só pra aparecer no painel.
 
 ---
 
@@ -70,7 +101,8 @@ do `settings.json` (ou restaure o `.bak`), apague os 3 arquivos em
 
 ```
 store.js            <- leitura/escrita de ~/.claude/simbionte/ (o contrato de dados)
-claude-hooks/       <- fonte dos hooks PostToolUse (progress-hook.js, activity-hook.js)
+claude-hooks/       <- fonte dos hooks (progress-hook.js, activity-hook.js, estado-hook.js)
+hooks-settings.js   <- puro: registrar/remover os hooks no settings.json
 vscode-extension/   <- a extensão (media/build.html é o painel; lib/ é gerado pelo prepare.js)
 insights.js         <- puro: sinais, síntese, nota de saúde, classificação
 scan-store.js       <- persiste o scan git em _scan.<porta>.json

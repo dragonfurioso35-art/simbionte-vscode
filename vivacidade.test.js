@@ -78,18 +78,11 @@ assert.strictEqual(escolherAlvo([parado, ativo], 'usuario', AGORA).projectId, 'a
 assert.strictEqual(escolherAlvo([parado], 'loja-web', AGORA).projectId, 'loja-web',
   'só o projeto da janela existe: mostra ele (expirado fica a cargo de expirado())');
 
-// ── Banner de hook travado ────────────────────────────────────────────
-// Mesma regra de hooksTravados() em extension.js.
-function hooksTravados(lastRun, agora) {
-  if (!lastRun) return false;
-  return (agora - lastRun) > EXPIRA_MS;
-}
-
-assert.strictEqual(hooksTravados(AGORA - 23000, AGORA), false,
+// ── Banner de sessão travada ──────────────────────────────────────────
+// Desde a 1.1.0 a regra vive em store.js:estadoDaSessao (testada a fundo em
+// test/test_heartbeat_alert.js). Aqui só o caso que originou este arquivo.
+const { estadoDaSessao } = require('./store.js');
+assert.strictEqual(estadoDaSessao({ evento: 'PostToolUse', ts: AGORA - 23000 }, AGORA, EXPIRA_MS).estado, 'trabalhando',
   'hook rodou ha 23s: banner tem que estar oculto, sem esperar o timer de 60s');
-assert.strictEqual(hooksTravados(AGORA - min(20), AGORA), true,
-  'hook parado ha 20 min: banner aparece — e um alarme legitimo');
-assert.strictEqual(hooksTravados(0, AGORA), false,
-  'maquina onde nenhum hook rodou ainda nao e "travada", e ruido na 1a execucao');
 
-console.log('vivacidade: 8/8 ok');
+console.log('vivacidade: 6/6 ok');

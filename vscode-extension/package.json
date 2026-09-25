@@ -1,8 +1,8 @@
 {
   "name": "simbionte",
   "displayName": "Simbionte",
-  "description": "Painel ao vivo do que o Claude Code está fazendo: progresso dos planos (- [ ] / - [x]), arquivos tocados e alerta de sessão travada. Live Claude Code progress panel.",
-  "version": "1.0.1",
+  "description": "Painel ao vivo do Claude Code: progresso dos planos, arquivos tocados e estado da sessão (trabalhando, aguardando você, comando rodando, travada). | Live Claude Code panel: plan progress, touched files and session state.",
+  "version": "1.1.0",
   "publisher": "OSCARWILDERROJASRIVERO4849",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -60,8 +60,23 @@
       {
         "command": "simbionte.instalarHooks",
         "title": "Simbionte: Instalar hooks do Claude Code"
+      },
+      {
+        "command": "simbionte.removerHooks",
+        "title": "Simbionte: Remover hooks do Claude Code"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Simbionte",
+      "properties": {
+        "simbionte.limiteTravadoMin": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "description": "Minutos sem nenhum sinal, com o Claude Code trabalhando, até alertar \"possivelmente travada\". Esperar você, rodar um comando ou sessão encerrada nunca alertam."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "node prepare.js"

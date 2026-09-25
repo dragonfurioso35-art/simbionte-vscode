@@ -46,7 +46,7 @@ const PROJETOS = [
     });
     await page.goto('file://' + HTML.replace(/\\/g, '/'));
     await page.evaluate((projetos) => {
-      window.postMessage({ type: 'update', projetos, currentProject: 'loja-web', travado: false }, '*');
+      window.postMessage({ type: 'update', projetos, currentProject: 'loja-web', sessao: null }, '*');
     }, PROJETOS);
     await page.waitForTimeout(300);
     const fs = require('fs');
@@ -61,14 +61,14 @@ const PROJETOS = [
     await page.addInitScript(() => { window.acquireVsCodeApi = () => ({ postMessage: () => {} }); });
     await page.goto('file://' + HTML.replace(/\\/g, '/'));
     await page.evaluate((projetos) => {
-      window.postMessage({ type: 'update', projetos, currentProject: 'loja-web', travado: false }, '*');
+      window.postMessage({ type: 'update', projetos, currentProject: 'loja-web', sessao: null }, '*');
     }, PROJETOS);
     await page.waitForTimeout(200);
     const atualizados = PROJETOS.map(p => p.projectId === 'painel-admin'
       ? { ...p, lastTouch: Date.now(), activity: [{ file: 'novo.gs', ts: Date.now() }] }
       : p);
     await page.evaluate((projetos) => {
-      window.postMessage({ type: 'update', projetos, currentProject: 'loja-web', travado: false }, '*');
+      window.postMessage({ type: 'update', projetos, currentProject: 'loja-web', sessao: null }, '*');
     }, atualizados);
     await page.waitForTimeout(350); // meio da animação de 900ms
     const fs = require('fs');
@@ -84,7 +84,7 @@ const PROJETOS = [
   await page.addInitScript(() => { window.acquireVsCodeApi = () => ({ postMessage: () => {} }); });
   await page.goto('file://' + HTML.replace(/\\/g, '/'));
   await page.evaluate(() => {
-    window.postMessage({ type: 'update', projetos: [], currentProject: null, travado: true }, '*');
+    window.postMessage({ type: 'update', projetos: [], currentProject: null, sessao: { estado: 'travada', limiteMin: 15, desde: 1200000 } }, '*');
   });
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(OUT, 'vazio-travado.png') });
