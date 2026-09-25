@@ -16,4 +16,5 @@ vira "travou" depois de 15 min.
 - [ ] GIF de ~10s (Oscar grava) → docs/painel.gif no topo do README
 - [ ] Open VSX: conta Eclipse + namespace (Oscar), `npx ovsx publish` (Claude)
 - [ ] decidir publisher antes da divulgação
-- [ ] commit + push + publicar 1.1.0 no Marketplace
+- [x] commit + push + publicar 1.1.0 no Marketplace (92acf0e; .vsix enviado pelo site em 25/09)
+- [ ] build.html: centralizar `.sessao-linha` e dar respiro sob o anel (`margin:var(--sp-2) 0 var(--sp-3);text-align:center`); já aplicado no interno
